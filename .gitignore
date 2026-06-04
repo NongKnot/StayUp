@@ -1,0 +1,52 @@
+# Build artifacts.
+StayUp.app/
+*_bin
+daemon/app.getstayup.helper
+dist/
+
+# macOS Finder metadata.
+.DS_Store
+
+# Local Codex/Claude/project guidance and scratch state.
+# The public repo should be the app, not the workshop around the app.
+.claude/
+.mcp.json
+AGENTS.md
+BRAND.md
+CLAUDE.md
+CLAUDE.local.md
+
+# Private launch/marketing/site workspaces. getstayup.app is a separate
+# publishing surface; copy only final app-facing assets into assets/ or
+# Resources/ when they are needed by the app/release.
+launch/
+site/
+image/
+docs/track-a-brief.md
+docs/HANDOFF.md
+docs/adr/
+.cursor/
+*.local.md
+.env
+.env.*
+
+# Local diagrams and analysis artifacts.
+stayup-source-flowchart*
+
+# Maintainer-only experiments / release smoke checks. These stay local;
+# the public source path is build.sh plus the minimal runtime resources.
+.github/FUNDING.yml
+tools/bench-auto.sh
+tools/bench-mini.sh
+tools/test-update.sh
+daemon/uninstall-legacy.sh
+tools/test-agent-hook.sh
+
+# Icon-generation intermediates — regenerable from tools/make-icon.sh.
+# Only the final Resources/AppIcon.icns is tracked.
+Resources/icon-source.html
+Resources/AppIcon-1024.png
+Resources/AppIcon.iconset/
+
+# Wrangler local cache (Cloudflare Pages deploy state).
+.wrangler/
