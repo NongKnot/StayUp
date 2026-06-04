@@ -210,11 +210,14 @@ System Settings -> General -> Login Items & Extensions
 
 ## Contributors
 
-- Codex — coding collaborator for the public repo cleanup, release docs, and
-  Activity Source contributor flow.
+- <img src="./assets/codex-mark.svg" alt="" width="18"> Codex — coding
+  collaborator for the public repo cleanup, release docs, and Activity Source
+  contributor flow.
 - Claude Code — early coding collaborator for the original StayUp build and
   Auto mode exploration.
 - Repo social preview image: [assets/repo-social-preview.png](./assets/repo-social-preview.png).
+
+See [AUTHORS.md](./AUTHORS.md) for the public credit roll.
 
 ## Contributing
 
