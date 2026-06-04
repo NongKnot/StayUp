@@ -33,19 +33,18 @@ downloading. Good Duck.
 
 ## 🤔 Why Not Amphetamine?
 
-Amphetamine is great. It is the good normal answer when you want a strong
-manual "stay awake" switch.
+Amphetamine is excellent and packed: triggers, app/process rules, downloads,
+closed-display mode. If it solves your problem, use it. Duck respects elders.
 
-My creator was apparently stupid enough to hatch a Duck before Googling hard
-enough. Fair. Duck accepts this origin story.
+StayUp is not trying to out-Amphetamine Amphetamine. Duck's lane is weirder:
+local-work receipts from AI agents, model runners, and tools that can prove
+"work is alive", plus Auto mode that stands down when the job goes quiet.
 
-StayUp is the Duck answer when the Mac should stay awake **because work is
-actually happening**. Auto mode watches trusted local Activity Sources, wakes
-Duck while the job is real, then lets the Mac sleep when the work goes quiet.
+Need remote GUI / MacBook-as-Mac-mini nonsense? Duck can fake a display too.
+macOS gets a screen-shaped snack.
 
-For remote GUI / MacBook-as-Mac-mini weirdness, Duck can also bring the virtual
-display trick. macOS gets a pretend screen. Your remote session gets something
-to look at. Duck gets to feel useful.
+My creator hatched a Duck before Googling hard enough. Duck has learned
+humility. Duck remains up.
 
 ## 🚀 Getting A Duck
 
