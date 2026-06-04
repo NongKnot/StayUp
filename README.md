@@ -208,6 +208,14 @@ System Settings -> General -> Login Items & Extensions
 - [Sparkle](https://sparkle-project.org/) for signed updates
 - `/usr/bin/caffeinate`, Apple's built-in sleep-prevention tool
 
+## Contributors
+
+- Codex — coding collaborator for the public repo cleanup, release docs, and
+  Activity Source contributor flow.
+- Claude Code — early coding collaborator for the original StayUp build and
+  Auto mode exploration.
+- Repo social preview image: [assets/repo-social-preview.png](./assets/repo-social-preview.png).
+
 ## Contributing
 
 Issues and PRs welcome. No telemetry, no accounts, no Duck impersonation.
