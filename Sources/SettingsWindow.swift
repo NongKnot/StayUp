@@ -1,0 +1,1253 @@
+import AppKit
+import ServiceManagement
+
+/// Settings panel built on the classic macOS preferences pattern:
+/// NSToolbar tabs across the top, content pane below, window
+/// auto-resizes vertically as you switch tabs.
+///
+/// Why toolbar tabs and not the sidebar I tried first: 4 sections is
+/// the sweet spot for top-tab navigation (3–10 items). Sidebar nav
+/// pays a fixed chrome cost (~150pt of permanent width) that only
+/// amortizes past ~10 sections. For us it's pure tax — every section
+/// already fits in a top icon strip, every section is visible at once,
+/// no hidden state behind a sidebar selection.
+///
+/// Structural changes that shipped with this rebuild (kept the
+/// commentary inline so the structural decisions remain obvious):
+/// * Dropped "Resume on launch" as a user-facing toggle. Always-on is
+///   what 99% of users want; the persisted state still lives in
+///   `Settings.resumeOnLaunch` for the engine but no longer earns its
+///   real estate in the UI.
+/// * Don't Die's stepper + numeric field + % suffix collapsed into a
+///   3-option dropdown (5% / 10% / 20%). Stepper precision was an
+///   engineer's mental model.
+/// * Status banner at the top of General: live "5 of 5 layers ready"
+///   readout that nudges the user to Helper when it's amber. Surfaces
+///   the battery+lid coverage gate without nagging.
+/// * Skin picker shows a colored swatch per skin (Mono renders as a
+///   light/dark split to convey "adapts to menu bar").
+/// * Tip CTA softened — borderless text link, not a primary button.
+/// * Helper paragraph trimmed to a single sentence.
+final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
+
+    private var window: NSWindow?
+
+    /// Tab identifiers. Kept in this order — affects the toolbar layout.
+    private let tabIDs: [NSToolbarItem.Identifier] = [
+        .stayupGeneral, .stayupAdvanced, .stayupLook, .stayupAbout,
+    ]
+    private var sectionViews: [NSToolbarItem.Identifier: NSView] = [:]
+
+    // Controls — populated by the section builders.
+    private var dontDieCheck:    NSButton!
+    private var dontDiePopup:    NSPopUpButton!
+    private var roastCheck:      NSButton!
+    private var loginCheck:      NSButton!
+    private var skinPopUp:       NSPopUpButton!
+    private var helperStatus:    NSTextField!
+    private var helperButton:    NSButton!
+    private var autoUpdateCheck: NSButton!
+    private var walkCheck:       NSButton!
+    private var walkHardwareNote: NSTextField!
+    private var modeControl:     NSSegmentedControl!
+    private var autoGracePopup:  NSPopUpButton!
+    private var screenLockCheck: NSButton!
+    private var sourceSummary: NSTextField!
+    private var sourceListStack: NSStackView!
+    private var sourceActionNote: NSTextField!
+    private var sourceDeleteTargets: [String: ExternalSourceWatcher.ConfiguredSourceInfo] = [:]
+
+    /// Width of every section's content. Window resizes height per
+    /// section but keeps a uniform width so toolbar items don't
+    /// shimmy around on tab switches.
+    private let contentWidth: CGFloat = 460
+
+    /// Called whenever a setting changes so MenuController can refresh
+    /// the menu bar.
+    var onChange: (() -> Void)?
+
+    /// Caller-provided action for the "Launch at Login" toggle. The
+    /// `SMAppService.mainApp` plumbing lives in MenuController.
+    var loginToggle: ((Bool) -> Void)?
+    var loginIsEnabled: (() -> Bool)?
+
+    /// Re-opens the WelcomeWindow from the low-key footer link in About.
+    var openWelcome: (() -> Void)?
+
+    /// Mode control, routed to `MenuController` so the menu and this panel
+    /// share one path. `setMode` takes the segment index (0=Off,1=On,2=Auto);
+    /// `currentModeIndex` reads it back for `sync()`.
+    var setMode: ((Int) -> Void)?
+    var currentModeIndex: (() -> Int)?
+
+    func show() {
+        if window == nil { window = build() }
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        sync()
+    }
+
+    // MARK: - Build
+
+    private func build() -> NSWindow {
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: contentWidth, height: 360),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        w.title = "StayUp Settings"
+        w.isReleasedWhenClosed = false
+        w.delegate = self
+        w.toolbarStyle = .preference
+
+        let toolbar = NSToolbar(identifier: "app.getstayup.settings")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconAndLabel
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        toolbar.sizeMode = .regular
+        w.toolbar = toolbar
+        toolbar.selectedItemIdentifier = .stayupGeneral
+
+        // Pre-build all section views so tab switches are instant. Each
+        // view is given an explicit width constraint so its fittingSize
+        // returns a predictable (width, height) and the window can
+        // resize on switch without re-measuring multiple times.
+        for id in tabIDs {
+            let v: NSView
+            switch id {
+            case .stayupGeneral:  v = buildGeneralView()
+            case .stayupAdvanced: v = buildAdvancedView()
+            case .stayupLook:     v = buildLookView()
+            case .stayupAbout:    v = buildAboutView()
+            default:             v = NSView()
+            }
+            v.translatesAutoresizingMaskIntoConstraints = false
+            v.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+            sectionViews[id] = v
+        }
+
+        if let general = sectionViews[.stayupGeneral] {
+            w.contentView = general
+            general.layoutSubtreeIfNeeded()
+            resizeWindow(toFit: general)
+        }
+        return w
+    }
+
+    /// Resize the window's content area to match a section view's
+    /// fitting size. Top-anchored so the title bar feels stable.
+    private func resizeWindow(toFit view: NSView) {
+        guard let w = window else { return }
+        view.layoutSubtreeIfNeeded()
+        let h = view.fittingSize.height
+        let contentRect = NSRect(x: 0, y: 0, width: contentWidth, height: h)
+        var frame = w.frameRect(forContentRect: contentRect)
+        // Keep the top of the window in place across height changes.
+        frame.origin = NSPoint(x: w.frame.origin.x,
+                               y: w.frame.origin.y + (w.frame.height - frame.height))
+        w.setFrame(frame, display: true, animate: true)
+    }
+
+    // MARK: - Toolbar
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier: id)
+        switch id {
+        case .stayupGeneral:
+            item.label = "General"
+            item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "General")
+        case .stayupAdvanced:
+            item.label = "Advanced"
+            item.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Advanced")
+        case .stayupLook:
+            item.label = "Look"
+            item.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: "Look")
+        case .stayupAbout:
+            item.label = "About"
+            item.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "About")
+        default:
+            return nil
+        }
+        item.target = self
+        item.action = #selector(tabSelected(_:))
+        return item
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { tabIDs }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { tabIDs }
+    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { tabIDs }
+
+    @objc private func tabSelected(_ sender: NSToolbarItem) {
+        showTab(sender.itemIdentifier)
+    }
+
+    private func showTab(_ id: NSToolbarItem.Identifier) {
+        guard let view = sectionViews[id] else { return }
+        window?.contentView = view
+        resizeWindow(toFit: view)
+    }
+
+    // MARK: - Section builders
+
+    private func buildGeneralView() -> NSView {
+        let (container, stack) = sectionContainer()
+
+        // Mode — the one switch (mirrored in the menu-bar dropdown).
+        let modeLabel = NSTextField(labelWithString: "Mode")
+        modeLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        stack.addArrangedSubview(modeLabel)
+        modeControl = NSSegmentedControl(
+            labels: ["Off", "On", "Auto"],
+            trackingMode: .selectOne,
+            target: self,
+            action: #selector(modeChanged))
+        modeControl.segmentStyle = .rounded
+        stack.addArrangedSubview(modeControl)
+        addDesc("Off: no sleep protection. On: protect now. Auto: protect only while selected Activity Sources are active.", in: stack)
+
+        addGap(in: stack)
+
+        loginCheck = NSButton(checkboxWithTitle: "Launch at Login",
+                              target: self, action: #selector(loginToggled))
+        stack.addArrangedSubview(loginCheck)
+        addDesc("Duck shows up when you do.", in: stack)
+
+        addGap(in: stack)
+
+        dontDieCheck = NSButton(checkboxWithTitle: "Don't Die",
+                                target: self, action: #selector(dontDieToggled))
+        stack.addArrangedSubview(dontDieCheck)
+
+        // Inline sub-row: "Disengage at: ▾ 10%"
+        let dontDieRow = NSStackView()
+        dontDieRow.orientation = .horizontal
+        dontDieRow.spacing     = 8
+        dontDieRow.alignment   = .centerY
+        let dontDieLabel = NSTextField(labelWithString: "Disengage at:")
+        dontDieLabel.font = NSFont.systemFont(ofSize: 11)
+        dontDieLabel.textColor = .secondaryLabelColor
+        dontDiePopup = NSPopUpButton()
+        dontDiePopup.target = self
+        dontDiePopup.action = #selector(dontDiePopupChanged)
+        for pct in [5, 10, 20] {
+            let item = NSMenuItem(title: "\(pct)%", action: nil, keyEquivalent: "")
+            item.tag = pct
+            dontDiePopup.menu?.addItem(item)
+        }
+        dontDieRow.addArrangedSubview(dontDieLabel)
+        dontDieRow.addArrangedSubview(dontDiePopup)
+
+        let ddIndent = NSView()
+        ddIndent.translatesAutoresizingMaskIntoConstraints = false
+        ddIndent.addSubview(dontDieRow)
+        dontDieRow.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            dontDieRow.leadingAnchor.constraint(equalTo: ddIndent.leadingAnchor, constant: 20),
+            dontDieRow.trailingAnchor.constraint(lessThanOrEqualTo: ddIndent.trailingAnchor),
+            dontDieRow.topAnchor.constraint(equalTo: ddIndent.topAnchor),
+            dontDieRow.bottomAnchor.constraint(equalTo: ddIndent.bottomAnchor),
+        ])
+        stack.addArrangedSubview(ddIndent)
+        ddIndent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        addDesc("Duck won't let your MacBook die.", in: stack)
+
+        // Helper — the one layer that truly survives battery + lid-closed on
+        // Apple Silicon (root daemon → pmset disablesleep).
+        addGap(in: stack, height: 18)
+        let helperHeader = NSTextField(labelWithString: "Helper — lid-closed on battery")
+        helperHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        stack.addArrangedSubview(helperHeader)
+        addDesc("Set this up. Battery plus lid closed is the hard case, and the Helper is how Duck handles it.", in: stack)
+        helperStatus = NSTextField(labelWithString: "—")
+        helperStatus.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        stack.addArrangedSubview(helperStatus)
+        helperButton = NSButton(title: "Set up", target: self, action: #selector(helperAction))
+        helperButton.bezelStyle = .rounded
+        stack.addArrangedSubview(helperButton)
+
+        return container
+    }
+
+    /// Advanced tab — keep-screen-on + Activity Source tuning (Auto mode is
+    /// set in General -> Mode) + the walk animation.
+    private func buildAdvancedView() -> NSView {
+        let (container, stack) = sectionContainer()
+
+        // Keep screen on (vs let the Mac lock).
+        screenLockCheck = NSButton(checkboxWithTitle: "Keep the screen on too (no lock screen)",
+                                   target: self, action: #selector(screenLockToggled))
+        stack.addArrangedSubview(screenLockCheck)
+        addDesc("On: screen stays lit, never locks. Off: Mac keeps working but can lock — safer if you wander off.", in: stack)
+
+        // Activity Sources — one user-facing workflow. Some tools report their
+        // own activity; others are observed by local file/log/socket/CPU clues.
+        addSeparator(in: stack)
+        let aiHeader = NSTextField(labelWithString: "Activity Sources")
+        aiHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        stack.addArrangedSubview(aiHeader)
+        addDesc("Auto uses these local sources to decide when Duck should stay up. Each source must prove real work, not just that an app is open.", in: stack)
+
+        sourceSummary = NSTextField(labelWithString: "")
+        sourceSummary.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        sourceSummary.textColor = .secondaryLabelColor
+        sourceSummary.maximumNumberOfLines = 0
+        sourceSummary.lineBreakMode = .byWordWrapping
+        sourceSummary.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(sourceSummary)
+        sourceSummary.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        // Inline sub-row: "Nap after: ▾ 5 min"
+        let graceRow = NSStackView()
+        graceRow.orientation = .horizontal
+        graceRow.spacing     = 8
+        graceRow.alignment   = .centerY
+        let graceLabel = NSTextField(labelWithString: "After activity stops:")
+        graceLabel.font = NSFont.systemFont(ofSize: 11)
+        graceLabel.textColor = .secondaryLabelColor
+        autoGracePopup = NSPopUpButton()
+        autoGracePopup.target = self
+        autoGracePopup.action = #selector(autoGraceChanged)
+        for (title, secs) in [("5 min", 300), ("15 min", 900), ("30 min", 1800),
+                              ("60 min", 3600), ("180 min", 10800)] {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.tag = secs
+            autoGracePopup.menu?.addItem(item)
+        }
+        graceRow.addArrangedSubview(graceLabel)
+        graceRow.addArrangedSubview(autoGracePopup)
+
+        let graceIndent = NSView()
+        graceIndent.translatesAutoresizingMaskIntoConstraints = false
+        graceIndent.addSubview(graceRow)
+        graceRow.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            graceRow.leadingAnchor.constraint(equalTo: graceIndent.leadingAnchor, constant: 20),
+            graceRow.trailingAnchor.constraint(lessThanOrEqualTo: graceIndent.trailingAnchor),
+            graceRow.topAnchor.constraint(equalTo: graceIndent.topAnchor),
+            graceRow.bottomAnchor.constraint(equalTo: graceIndent.bottomAnchor),
+        ])
+        stack.addArrangedSubview(graceIndent)
+        graceIndent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        addDesc("Auto releases after this wait period. Manual On and Off still override Auto directly.", in: stack)
+
+        // Which sources to trust — a scrollable list that scales as users add
+        // more sources. Nothing's on until the user ticks it.
+        addGap(in: stack, height: 10)
+        let detectLabel = NSTextField(labelWithString: "Trusted Sources")
+        detectLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        detectLabel.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(detectLabel)
+
+        sourceListStack = NSStackView()
+        sourceListStack.orientation = .vertical
+        sourceListStack.alignment   = .leading
+        sourceListStack.spacing     = 2
+        sourceListStack.edgeInsets  = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        sourceListStack.translatesAutoresizingMaskIntoConstraints = false
+        rebuildSourceList()
+
+        let doc = FlippedView()
+        doc.translatesAutoresizingMaskIntoConstraints = false
+        doc.addSubview(sourceListStack)
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        scroll.borderType = .bezelBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = doc
+        stack.addArrangedSubview(scroll)
+        NSLayoutConstraint.activate([
+            sourceListStack.topAnchor.constraint(equalTo: doc.topAnchor),
+            sourceListStack.leadingAnchor.constraint(equalTo: doc.leadingAnchor),
+            sourceListStack.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
+            sourceListStack.bottomAnchor.constraint(equalTo: doc.bottomAnchor),
+            doc.widthAnchor.constraint(equalTo: scroll.widthAnchor),       // no horizontal scroll
+            scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            scroll.heightAnchor.constraint(equalToConstant: 146),          // ~4 rich rows; scrolls beyond
+        ])
+        addDesc("Tick only sources you trust. A disabled source can be present on disk but cannot wake Duck.", in: stack)
+
+        let sourceButtonRow = NSStackView()
+        sourceButtonRow.orientation = .horizontal
+        sourceButtonRow.spacing     = 8
+        sourceButtonRow.alignment   = .centerY
+        for button in [
+            NSButton(title: "Copy setup prompt", target: self, action: #selector(copySourcePrompt)),
+            NSButton(title: "Open sources folder", target: self, action: #selector(openSourcesFolder)),
+            NSButton(title: "Refresh", target: self, action: #selector(refreshSourceList)),
+        ] {
+            button.bezelStyle = .rounded
+            sourceButtonRow.addArrangedSubview(button)
+        }
+        stack.addArrangedSubview(sourceButtonRow)
+
+        sourceActionNote = NSTextField(labelWithString: "")
+        sourceActionNote.font = NSFont.systemFont(ofSize: 10)
+        sourceActionNote.textColor = .tertiaryLabelColor
+        sourceActionNote.maximumNumberOfLines = 0
+        sourceActionNote.lineBreakMode = .byWordWrapping
+        sourceActionNote.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(sourceActionNote)
+        sourceActionNote.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        // ---- Walk animation ----
+        addSeparator(in: stack)
+        let walkHeader = NSTextField(labelWithString: "Walk")
+        walkHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        stack.addArrangedSubview(walkHeader)
+
+        walkCheck = NSButton(checkboxWithTitle: "Walk mode",
+                             target: self, action: #selector(walkToggled))
+        stack.addArrangedSubview(walkCheck)
+        addDesc("Duck walks when you do. Only sniffs the accelerometer while engaged.", in: stack)
+
+        walkHardwareNote = NSTextField(labelWithString: "No accelerometer on this Mac. Duck stays put.")
+        walkHardwareNote.font = NSFont.systemFont(ofSize: 11)
+        walkHardwareNote.textColor = .tertiaryLabelColor
+        walkHardwareNote.maximumNumberOfLines = 0
+        walkHardwareNote.lineBreakMode = .byWordWrapping
+        walkHardwareNote.translatesAutoresizingMaskIntoConstraints = false
+        walkHardwareNote.isHidden = true
+        stack.addArrangedSubview(walkHardwareNote)
+        walkHardwareNote.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        addGap(in: stack)
+
+        roastCheck = NSButton(checkboxWithTitle: "Roast me",
+                              target: self, action: #selector(roastChanged))
+        stack.addArrangedSubview(roastCheck)
+        addDesc("Duck heckles your step count.", in: stack)
+
+        addGap(in: stack, height: 14)
+        let statsHeader = NSTextField(labelWithString: "Walk log")
+        statsHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        stack.addArrangedSubview(statsHeader)
+        addDesc("Step totals soon. Duck still learning to keep a diary.", in: stack)
+
+        return container
+    }
+
+    private func buildLookView() -> NSView {
+        let (container, stack) = sectionContainer()
+
+        // Duck skin row with colored swatches in the popup menu. Public v1
+        // shows only the shipped starter Ducks; pack/code surfaces can come
+        // back when the site + unlock story are ready.
+        let skinRow = NSStackView()
+        skinRow.orientation = .horizontal
+        skinRow.spacing     = 10
+        skinRow.alignment   = .centerY
+        let skinLabel = NSTextField(labelWithString: "Duck:")
+        skinPopUp = NSPopUpButton()
+        skinPopUp.target = self
+        skinPopUp.action = #selector(skinChanged)
+        skinPopUp.menu?.autoenablesItems = false
+        skinRow.addArrangedSubview(skinLabel)
+        skinRow.addArrangedSubview(skinPopUp)
+        stack.addArrangedSubview(skinRow)
+
+        addDesc("Pick a Duck. Mono is the quiet one — it adapts to dark mode.", in: stack)
+
+        rebuildSkinPicker()
+
+        return container
+    }
+
+    /// Repopulate the skin picker with the public v1 starter Ducks.
+    private func rebuildSkinPicker() {
+        guard let popup = skinPopUp else { return }
+        popup.removeAllItems()
+
+        let availableSkins = DuckPack.starter.skins
+
+        for skin in availableSkins {
+            let item = NSMenuItem(title: skin.displayName,
+                                  action: nil, keyEquivalent: "")
+            item.image = skinSwatch(skin, size: 16)
+            item.representedObject = skin.id
+            popup.menu?.addItem(item)
+        }
+
+        // Restore the user's selection if it is one of the public v1 skins;
+        // otherwise fall back to Classic. This cleans up old local states
+        // that may have selected a hidden work-in-progress skin.
+        let activeId = Settings.skinId
+        if let idx = availableSkins.firstIndex(where: { $0.id == activeId }) {
+            popup.selectItem(at: idx)
+        } else {
+            let fallbackId = DuckSkin.classic.id
+            popup.selectItem(at: availableSkins.firstIndex(where: { $0.id == fallbackId }) ?? 0)
+            Settings.skinId = fallbackId
+            IconRenderer.invalidateCache()
+            onChange?()
+        }
+    }
+
+    /// Repopulate the Activity Sources checklist from ~/.stayup/sources/*.
+    /// This lets a user add a source folder, save, then hit Refresh without
+    /// closing Settings.
+    private func rebuildSourceList() {
+        guard let stack = sourceListStack else { return }
+        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        sourceDeleteTargets.removeAll()
+
+        var seen = Set<String>()
+        let sources = ExternalSourceWatcher.configuredSourceInfo().filter { source in
+            seen.insert(source.key).inserted
+        }
+        guard !sources.isEmpty else {
+            let empty = NSTextField(labelWithString: "No Activity Sources yet. Use the setup prompt or add a source.json, then refresh.")
+            empty.font = NSFont.systemFont(ofSize: 11)
+            empty.textColor = .secondaryLabelColor
+            empty.maximumNumberOfLines = 0
+            empty.lineBreakMode = .byWordWrapping
+            empty.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(empty)
+            empty.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            updateSourceSummary(sources: sources)
+            return
+        }
+
+        for source in sources {
+            let enabled = !source.isDeleted && Settings.isSourceEnabled(source.key)
+            let cb = NSButton(checkboxWithTitle: source.displayName, target: self, action: #selector(sourceToggled(_:)))
+            cb.identifier = NSUserInterfaceItemIdentifier(source.key)
+            cb.state = enabled ? .on : .off
+            cb.isEnabled = !source.isDeleted
+            cb.font = NSFont.systemFont(ofSize: 12)
+            cb.toolTip = source.key == source.displayName ? nil : "Source key: \(source.key)"
+
+            let note = NSTextField(labelWithString: Self.sourceNote(for: source))
+            note.font = NSFont.systemFont(ofSize: 10)
+            note.textColor = .tertiaryLabelColor
+
+            let badge = NSTextField(labelWithString: Self.sourceBadge(for: source))
+            badge.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
+            badge.textColor = enabled ? .systemBlue : .tertiaryLabelColor
+            badge.alignment = .right
+            badge.setContentHuggingPriority(.required, for: .horizontal)
+
+            let text = NSStackView(views: [cb, note])
+            text.orientation = .vertical
+            text.alignment = .leading
+            text.spacing = 0
+            text.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+            sourceDeleteTargets[source.folderSlug] = source
+            var actions: [NSView] = []
+            if source.isDeleted {
+                let restore = NSButton(title: "Restore", target: self, action: #selector(restoreSource(_:)))
+                restore.bezelStyle = .rounded
+                restore.controlSize = .small
+                restore.font = NSFont.systemFont(ofSize: 11)
+                restore.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
+                actions.append(restore)
+
+                if source.method == "reported" || source.type == "reported" {
+                    let cleanup = NSButton(title: "Clean Up Hooks", target: self, action: #selector(cleanupSourceHooks(_:)))
+                    cleanup.bezelStyle = .rounded
+                    cleanup.controlSize = .small
+                    cleanup.font = NSFont.systemFont(ofSize: 11)
+                    cleanup.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
+                    actions.append(cleanup)
+                }
+            } else {
+                if (source.method == "reported" || source.type == "reported"),
+                   !ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
+                    let connect = NSButton(title: "Connect", target: self, action: #selector(connectSourceHooks(_:)))
+                    connect.bezelStyle = .rounded
+                    connect.controlSize = .small
+                    connect.font = NSFont.systemFont(ofSize: 11)
+                    connect.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
+                    connect.toolTip = "Add StayUp hook entries for \(source.displayName)"
+                    actions.append(connect)
+                }
+
+                let delete = NSButton(title: "Delete", target: self, action: #selector(deleteSource(_:)))
+                delete.bezelStyle = .rounded
+                delete.controlSize = .small
+                delete.font = NSFont.systemFont(ofSize: 11)
+                delete.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
+                delete.toolTip = "Remove \(source.displayName) from StayUp"
+                actions.append(delete)
+            }
+
+            let row = NSStackView(views: [text, badge] + actions)
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 10
+            row.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
+            row.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+        updateSourceSummary(sources: sources)
+    }
+
+    private static func sourceNote(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
+        if source.isDeleted {
+            return source.method == "reported" || source.type == "reported"
+                ? "disabled; hook wrapper exits safely"
+                : "disabled"
+        }
+        if source.method == "reported" || source.type == "reported" {
+            return "direct heartbeat from the tool"
+        }
+        switch source.type {
+        case "file":       return "observed by fresh file"
+        case "logPattern": return "observed by lifecycle log"
+        case "socket":     return "observed by active socket"
+        case "process":    return "observed by CPU while working"
+        default:           return "observed by local clue"
+        }
+    }
+
+    private static func sourceBadge(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
+        if source.isDeleted {
+            return "DISABLED"
+        }
+        if source.method == "reported" || source.type == "reported" {
+            return "REPORTS"
+        }
+        switch source.type {
+        case "file":       return "FILE"
+        case "logPattern": return "LOG"
+        case "socket":     return "SOCKET"
+        case "process":    return "CPU"
+        default:           return "CLUE"
+        }
+    }
+
+    private func updateSourceSummary(sources: [ExternalSourceWatcher.ConfiguredSourceInfo]? = nil) {
+        guard sourceSummary != nil else { return }
+        let visibleSources = sources ?? ExternalSourceWatcher.configuredSourceInfo()
+        let total = visibleSources.count
+        let enabled = visibleSources.filter { Settings.isSourceEnabled($0.key) }.count
+        let mode = Settings.autoSourceEnabled ? "Auto is selected" : "Auto is off"
+        let trusted = enabled == 1 ? "1 trusted source" : "\(enabled) trusted sources"
+        let found = total == 1 ? "1 found" : "\(total) found"
+        sourceSummary.stringValue = "\(mode). \(trusted) enabled, \(found)."
+        sourceSummary.textColor = Settings.autoSourceEnabled ? .systemBlue : .secondaryLabelColor
+    }
+
+    /// About tab — app identity, welcome replay, and the Updates controls
+    /// (auto-check + Check Now), which used to be their own tab.
+    private func buildAboutView() -> NSView {
+        let (container, stack) = sectionContainer()
+
+        let aboutRow = NSStackView()
+        aboutRow.orientation = .horizontal
+        aboutRow.spacing     = 14
+        aboutRow.alignment   = .top
+        let icon = NSImageView(image: IconRenderer.aboutIcon(size: 72))
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 72).isActive = true
+
+        // Easter-egg: Duck's LEFT EYE is a transparent button that launches
+        // the live "everything" tester (bundled tools/stayup.sh). Invisible but
+        // clickable; positioned over the eye (~ (138,175) in the 400×500 art).
+        let eye = NSButton(title: "", target: self, action: #selector(launchTester))
+        eye.isBordered = false
+        eye.isTransparent = true
+        eye.toolTip = "🔧 StayUp live tester"
+        eye.translatesAutoresizingMaskIntoConstraints = false
+        icon.addSubview(eye)
+        NSLayoutConstraint.activate([
+            eye.leadingAnchor.constraint(equalTo: icon.leadingAnchor, constant: 14),
+            eye.topAnchor.constraint(equalTo: icon.topAnchor, constant: 16),
+            eye.widthAnchor.constraint(equalToConstant: 20),
+            eye.heightAnchor.constraint(equalToConstant: 20),
+        ])
+
+        let aboutText = NSStackView()
+        aboutText.orientation = .vertical
+        aboutText.alignment   = .leading
+        aboutText.spacing     = 2
+        let appName = NSTextField(labelWithString: "StayUp")
+        appName.font = NSFont.systemFont(ofSize: 20, weight: .bold)
+        let motto = NSTextField(labelWithString: "Duck's up, all night baby.")
+        motto.font = NSFont.systemFont(ofSize: 12)
+        motto.textColor = .secondaryLabelColor
+        let version = NSTextField(labelWithString: "Version \(Self.appVersion) · getstayup.app")
+        version.font = NSFont.systemFont(ofSize: 11)
+        version.textColor = .tertiaryLabelColor
+        aboutText.addArrangedSubview(appName)
+        aboutText.addArrangedSubview(motto)
+        aboutText.addArrangedSubview(version)
+
+        aboutRow.addArrangedSubview(icon)
+        aboutRow.addArrangedSubview(aboutText)
+        stack.addArrangedSubview(aboutRow)
+
+        addGap(in: stack, height: 18)
+        addDesc("Free. Open source. Duck has rent.", in: stack)
+
+        // Tip + welcome as visible buttons side-by-side. Tip opens the site;
+        // pack/code surfaces stay held back for public v1.
+        let buttonRow = NSStackView()
+        buttonRow.orientation = .horizontal
+        buttonRow.spacing     = 10
+        buttonRow.alignment   = .centerY
+
+        let tipButton = NSButton(title: "Feed Duck",
+                                 target: self, action: #selector(openTipPage))
+        tipButton.bezelStyle = .rounded
+
+        let welcomeButton = NSButton(title: "Replay welcome",
+                                     target: self, action: #selector(reopenWelcome))
+        welcomeButton.bezelStyle = .rounded
+
+        buttonRow.addArrangedSubview(tipButton)
+        buttonRow.addArrangedSubview(welcomeButton)
+        stack.addArrangedSubview(buttonRow)
+
+        // ---- Updates (was its own tab) ----
+        addGap(in: stack, height: 18)
+        let updatesHeader = NSTextField(labelWithString: "Updates")
+        updatesHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        stack.addArrangedSubview(updatesHeader)
+        autoUpdateCheck = NSButton(checkboxWithTitle: "Automatically check for updates",
+                                   target: self, action: #selector(autoUpdateToggled))
+        stack.addArrangedSubview(autoUpdateCheck)
+        addDesc("Duck only phones home to ask if there's a newer Duck. No analytics.", in: stack)
+        let updateNowButton = NSButton(title: "Check for Updates Now",
+                                       target: self, action: #selector(checkUpdatesNow))
+        updateNowButton.bezelStyle = .rounded
+        stack.addArrangedSubview(updateNowButton)
+
+        return container
+    }
+
+    // MARK: - Section helpers
+
+    private func sectionContainer() -> (NSView, NSStackView) {
+        let v = NSView()
+        let s = NSStackView()
+        s.orientation = .vertical
+        s.alignment   = .leading
+        s.spacing     = 8
+        s.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(s)
+        NSLayoutConstraint.activate([
+            s.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 24),
+            s.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -24),
+            s.topAnchor.constraint(equalTo: v.topAnchor, constant: 22),
+            s.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -22),
+        ])
+        return (v, s)
+    }
+
+    /// Description text with a hard width binding so wrapping happens at
+    /// the actual visible width — the bug the old single-column layout
+    /// kept tripping over with `preferredMaxLayoutWidth` being a hint.
+    private func addDesc(_ text: String, in stack: NSStackView) {
+        let l = NSTextField(labelWithString: text)
+        l.font = NSFont.systemFont(ofSize: 11)
+        l.textColor = .secondaryLabelColor
+        l.maximumNumberOfLines = 0
+        l.lineBreakMode = .byWordWrapping
+        l.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(l)
+        l.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    }
+
+    private func addGap(in stack: NSStackView, height: CGFloat = 8) {
+        let gap = NSView()
+        gap.translatesAutoresizingMaskIntoConstraints = false
+        gap.heightAnchor.constraint(equalToConstant: height).isActive = true
+        stack.addArrangedSubview(gap)
+    }
+
+    /// Top-left origin so a scroll view's content fills from the top, not bottom.
+    private final class FlippedView: NSView { override var isFlipped: Bool { true } }
+
+    /// A full-width hairline that visually separates sections within a tab.
+    private func addSeparator(in stack: NSStackView) {
+        addGap(in: stack, height: 10)
+        let line = NSBox()
+        line.boxType = .separator
+        line.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(line)
+        line.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        addGap(in: stack, height: 10)
+    }
+
+    /// Renders a small swatch for the skin picker popup. Filled rounded
+    /// rect using the skin's body + outline colors. Mono is a special-case
+    /// half-light / half-dark split since its body/outline are both white
+    /// (the actual mono Duck adapts to menu-bar appearance — the swatch
+    /// has to communicate that with its own bitmap rather than relying on
+    /// macOS template behavior, since menu-item images don't get template
+    /// treatment the same way menu-bar icons do).
+    private func skinSwatch(_ skin: DuckSkin, size: CGFloat) -> NSImage {
+        let img = NSImage(size: NSSize(width: size, height: size))
+        img.lockFocus()
+        defer { img.unlockFocus() }
+        let rect = NSRect(x: 0.5, y: 0.5, width: size - 1, height: size - 1)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+        if skin.id == "mono" {
+            NSColor(white: 0.15, alpha: 1).setFill()
+            path.fill()
+            path.addClip()
+            NSColor.white.setFill()
+            NSRect(x: size / 2, y: 0, width: size / 2, height: size).fill()
+            path.lineWidth = 1
+            NSColor.separatorColor.setStroke()
+            path.stroke()
+        } else {
+            skin.body.setFill()
+            path.fill()
+            skin.outline.setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }
+        return img
+    }
+
+    private static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+    }
+
+    private static let sourceSetupPrompt = """
+You are setting up one StayUp Activity Source for one local tool or app surface on this Mac.
+
+StayUp is simple: Manual On/Off is direct user control. Auto protects the Mac only while a selected local Activity Source is actively working, then turns off after StayUp's grace period. Your job is to find one trustworthy local proof of "working now."
+
+Target one exact surface: CLI, desktop app, IDE extension, browser automation surface, local model runner, daemon, or other. Do not treat a brand as one source; different surfaces from the same product can expose different local signals.
+
+If the user has not named the exact surface in the current conversation, ask one short question: "Which local app or tool should I connect, and should I use Easy, Normal, or Developer mode?" Do not search or inspect broadly until they answer. If they name a surface but do not choose a style, use Normal mode.
+
+Talking style:
+- Easy mode: plain user steps, almost no implementation detail.
+- Normal mode: short explanations with the concrete checks and files you are using.
+- Developer mode: include commands, paths, config details, and tradeoffs.
+
+User-guided setup protocol:
+- First ask the user to put the target surface in an idle / not-working state. The app or daemon may stay open; idle means no generation, build, download, tool call, or local job is running. Do not ask them to close the app unless you specifically need to prove that app-open is not the signal.
+- After the exact surface is named, do a quick online search for official documentation or primary sources for that exact surface before local probing. Look specifically for hooks, log files, sockets, task-state APIs, lifecycle events, and local inference/job status. If online search is unavailable, say so and continue with local evidence. Treat web results as a map, not proof. The Activity Source is valid only after local idle-vs-active evidence on this Mac.
+- Inspect idle evidence and record what is quiet.
+- Then ask the user to start one tiny local job in that exact surface. Name the smallest safe action you need. If a model is required, ask them to choose or load the smallest local model available.
+- Inspect active evidence while the tiny job is running.
+- Ask the user to let the job finish or stop it. The user's "stopped" answer is a cue, not proof: inspect once right away, then re-check after about 10 seconds. If the signal still looks active, keep re-checking for about 1 to 3 minutes before deciding it failed to return idle. Some tools flush logs, release sockets, or update task state late.
+- Only install hooks or write source.json after the idle and active evidence support the source. If you cannot prove the difference, return needs_user_test or no_source.
+- If the user asks to delete or undo a setup, prefer safe disable first: remove the StayUp source folder for that exact source under ~/.stayup/sources/<source-slug>/, disable that source if needed, and replace any StayUp source-specific wrapper with a harmless no-op that exits 0. Do not edit the target tool's hook/config file unless the user explicitly asks to clean up hooks. Do not delete the target app, model files, user projects, logs, or unrelated config.
+
+StayUp source model:
+- Source recipe: ~/.stayup/sources/<source-slug>/source.json
+- Live receipts: ~/.stayup/sources/<source-slug>/active/
+- Preferred: the tool reports activity by writing heartbeat receipts under active/.
+- Generic reported CLIs can call ~/.stayup/bin/stayup-source-hook.sh with STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, and optional STAYUP_SESSION_ID.
+- Custom reported sources do not require StayUp app-code changes. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh that sets STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, and STAYUP_SOURCE_KEY, exports them, then execs ~/.stayup/bin/stayup-source-hook.sh "$@". Install the target tool's hooks so each event calls that wrapper with one StayUp action. The script creates the reported source.json automatically on first heartbeat.
+- If reinstalling or restoring a reported source and its source-specific wrapper already exists as a harmless no-op, overwrite that wrapper with the real source wrapper. If the target tool's hooks already call that wrapper with the right actions, reuse them instead of adding duplicates.
+- If ~/.stayup/bin/stayup-source-hook.sh is missing, create ~/.stayup/bin and copy it from /Applications/StayUp.app/Contents/Resources/stayup-source-hook.sh when that file exists, then chmod 755 it. If the installed app resource is unavailable, ask the user to open StayUp or return needs_user_test. Do not edit the StayUp source repo.
+- Fallback observed types are exactly: file, logPattern, socket, process.
+- Do not invent other type values.
+
+Good signals mean active local work:
+- heartbeat from tool events
+- task/log file mtime changing during work and quiet while idle
+- logPattern with clear active and idle/done markers
+- ESTABLISHED socket that appears during work and is absent while idle
+- CPU only when it clearly separates active work from idle
+
+Bad signals:
+- app is installed, open, authenticated, or configured
+- local LLM model is loaded in RAM, VRAM, memory, or ready state
+- generic process exists
+- browser tab or chat text exists
+- cloud/web-only work with no local receipt
+
+Local LLM rule: loaded model, server alive, or model ready is idle unless tokens are being generated, embeddings are running, a download is active, or another local inference/job is actually working.
+
+Workflow:
+1. If the exact surface is unclear, ask which local app or tool to connect.
+2. Inspect idle state first.
+3. Inspect active state from a tiny local job; ask the user before running anything expensive, killing processes, installing software, or editing config.
+4. Prefer reported heartbeat if the tool has hooks/events for turn start, active work, waiting/idle, or stop. Install that mapping in the tool's own hook/config file, not in ~/.stayup/sources by hand.
+5. Use tool-begin/tool-end only when those hooks are reliable paired lifecycle events. If the tool can only prove "work happened recently", map those hooks to active instead of exposing a fake in-flight tool count.
+6. Otherwise choose the smallest observed signal that is quiet when idle and active during work.
+7. If the evidence is weak, return needs_user_test or no_source. Do not guess.
+
+If you are asked to install a ready source, do not edit StayUp app code. For reports_activity, install hooks in the target tool's own hook/config file so each event calls the source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh. For file, logPattern, socket, or process, create exactly one source.json under ~/.stayup/sources/<source-slug>/source.json.
+
+Return exactly this structure and no extra prose:
+STAYUP_ACTIVITY_SOURCE_RESULT
+status: ready | needs_user_test | no_source
+source_method: reports_activity | file | logPattern | socket | process | needs_user_test | no_source
+surface:
+reported_activity_plan:
+- tool_hook_config_path:
+- tool_events:
+- stayup_actions:
+- hook_commands:
+- notes:
+candidate_tests:
+- file:
+- logPattern:
+- socket:
+- process:
+observed_source:
+```json
+{
+  "schema": "app.getstayup.activity-source.v1",
+  "name": "Tool Name",
+  "displayName": "Tool Name",
+  "type": "file",
+  "path": "~/path/to/file-or-glob",
+  "freshSecs": 45
+}
+```
+evidence:
+- idle:
+- active:
+why_this_means_local_work:
+false_positives:
+false_negatives:
+user_instruction:
+If source_method is reports_activity, add hooks to the tool's own hook/config file. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh; each hook should call that wrapper with one action: turn-start, active, waiting, stop, and only use tool-begin/tool-end for reliable paired tool lifecycle events. The wrapper should set and export STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, and optional STAYUP_SESSION_ID, then exec ~/.stayup/bin/stayup-source-hook.sh "$@". If source_method is file, logPattern, socket, or process, save observed_source as ~/.stayup/sources/<source-slug>/source.json, then open StayUp Settings -> Advanced, click Refresh, and tick the source.
+If no supported source is strong enough, say what support would make it detectable, such as a native heartbeat hook, task-state API, lifecycle log, active-work socket, or parent-scoped child-process tracking.
+"""
+
+    // MARK: - Sync
+
+    private func sync() {
+        dontDieCheck.state    = Settings.dontDieEnabled ? .on : .off
+        let pct = Settings.dontDiePct
+        let opts = [5, 10, 20]
+        let closest = opts.min(by: { abs($0 - pct) < abs($1 - pct) }) ?? 10
+        dontDiePopup.selectItem(withTag: closest)
+        if closest != pct { Settings.dontDiePct = closest }   // normalize stale values
+        dontDiePopup.isEnabled = Settings.dontDieEnabled
+
+        roastCheck.state      = Settings.roastEnabled ? .on : .off
+        loginCheck.state      = (loginIsEnabled?() ?? false) ? .on : .off
+        screenLockCheck.state = Settings.virtualDisplayEnabled ? .on : .off
+        autoUpdateCheck.state = SparkleUpdater.shared.automaticChecksEnabled ? .on : .off
+
+        // Walk-mode toggle reflects user pref AND hardware probe. On Macs
+        // without the SPU accelerometer (Intel, Mac mini, Studio, Pro) we
+        // force the checkbox visually OFF and disable interaction — the
+        // persisted preference is left untouched so it Just Works if the
+        // user later moves their settings to a MacBook.
+        let walkHW = WalkDetector.isHardwareAvailable
+        walkCheck.isEnabled = walkHW
+        walkCheck.state = (walkHW && Settings.walkEnabled) ? .on : .off
+        walkHardwareNote.isHidden = walkHW
+        roastCheck.isEnabled = walkHW    // roast only fires during a walk → meaningless without hardware
+
+        let activeId = Settings.skinId
+        for (i, item) in skinPopUp.itemArray.enumerated() {
+            if (item.representedObject as? String) == activeId {
+                skinPopUp.selectItem(at: i); break
+            }
+        }
+        syncSources()
+        syncHelper()
+    }
+
+    /// Reflect auto-mode prefs. The mode segmented control reflects
+    /// `autoSourceEnabled`; the grace popup is only live when Auto is selected.
+    private func syncSources() {
+        guard modeControl != nil else { return }
+        modeControl.selectedSegment = currentModeIndex?() ?? (Settings.autoSourceEnabled ? 2 : 0)
+        rebuildSourceList()
+
+        let opts = [300, 900, 1800, 3600, 10800]
+        let g = Settings.autoGraceSecs
+        let closest = opts.min(by: { abs($0 - g) < abs($1 - g) }) ?? 300
+        autoGracePopup.selectItem(withTag: closest)
+        if closest != g { Settings.autoGraceSecs = closest }   // normalize stale values
+        autoGracePopup.isEnabled = Settings.autoSourceEnabled    // grace only matters in Auto
+    }
+
+    private func syncHelper() {
+        switch StayUpHelper.shared.status {
+        case .enabled:
+            helperStatus.stringValue = "Helper awake. Real Duck mode."
+            helperStatus.textColor   = .systemGreen
+            helperButton.title       = "Uninstall Helper"
+        case .requiresApproval:
+            helperStatus.stringValue = "Waiting for your nod in Login Items."
+            helperStatus.textColor   = .systemOrange
+            helperButton.title       = "Open System Settings"
+        case .notRegistered, .notFound:
+            helperStatus.stringValue = "No Helper, no hard-case promise."
+            helperStatus.textColor   = .secondaryLabelColor
+            helperButton.title       = "Set up"
+        @unknown default:
+            helperStatus.stringValue = "Unknown"
+            helperStatus.textColor   = .secondaryLabelColor
+            helperButton.title       = "Set up"
+        }
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        guard helperStatus != nil else { return }
+        syncSources()
+        syncHelper()
+    }
+
+    // MARK: - Actions
+
+    @objc private func dontDieToggled() {
+        Settings.dontDieEnabled = (dontDieCheck.state == .on)
+        sync()
+        onChange?()
+    }
+    @objc private func dontDiePopupChanged() {
+        let tag = dontDiePopup.selectedItem?.tag ?? 10
+        Settings.dontDiePct = tag
+        onChange?()
+    }
+    @objc private func roastChanged() {
+        Settings.roastEnabled = (roastCheck.state == .on)
+        onChange?()
+    }
+    @objc private func screenLockToggled() {
+        // Checked = keep screen on (no lock). MenuController.reapplyScreenPolicy
+        // applies the change live if currently engaged.
+        Settings.virtualDisplayEnabled = (screenLockCheck.state == .on)
+        onChange?()
+    }
+    @objc private func walkToggled() {
+        Settings.walkEnabled = (walkCheck.state == .on)
+        onChange?()
+    }
+    @objc private func modeChanged() {
+        // setMode does the engage/disengage/install + reconcile + warning
+        // path shared with the menu.
+        setMode?(modeControl.selectedSegment)
+        syncSources()
+    }
+    @objc private func autoGraceChanged() {
+        Settings.autoGraceSecs = autoGracePopup.selectedItem?.tag ?? 300
+        onChange?()
+    }
+    @objc private func sourceToggled(_ sender: NSButton) {
+        let key = sender.identifier?.rawValue ?? sender.title
+        let enabling = sender.state == .on
+        if enabling,
+           let source = ExternalSourceWatcher.configuredSourceInfo().first(where: { $0.key == key }),
+           (source.method == "reported" || source.type == "reported"),
+           !ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
+            guard confirmConnectSourceHooks(source) else {
+                sender.state = .off
+                Settings.setSource(key, enabled: false)
+                rebuildSourceList()
+                return
+            }
+            do {
+                Settings.setReportedHookConnectionAllowed(true)
+                try ActivitySourceHookInstaller.installHooks(for: source.key)
+            } catch {
+                sender.state = .off
+                Settings.setSource(key, enabled: false)
+                sourceActionNote.stringValue = "Could not connect \(source.displayName): \(error.localizedDescription)"
+                rebuildSourceList()
+                return
+            }
+        }
+
+        Settings.setSource(key, enabled: enabling)
+        rebuildSourceList()
+        onChange?()
+    }
+
+    private func confirmConnectSourceHooks(_ source: ExternalSourceWatcher.ConfiguredSourceInfo) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Connect \(source.displayName)?"
+        alert.informativeText = "StayUp needs to add its own hook entries before Auto can trust this source. Existing config is preserved, and cleanup removes only StayUp entries."
+        alert.addButton(withTitle: "Connect")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+    @objc private func copySourcePrompt() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Self.sourceSetupPrompt, forType: .string)
+        sourceActionNote.stringValue = "Setup prompt copied. Paste it into the local tool or app surface you want to connect."
+    }
+    @objc private func openSourcesFolder() {
+        let url = ExternalSourceWatcher.ensureStayUpFolder()
+        NSWorkspace.shared.open(url)
+        sourceActionNote.stringValue = "Opened ~/.stayup. Add or edit sources/<tool>/source.json, inspect active receipts, then Refresh."
+    }
+    @objc private func refreshSourceList() {
+        rebuildSourceList()
+        sourceActionNote.stringValue = "Activity Sources refreshed."
+        onChange?()
+    }
+    @objc private func deleteSource(_ sender: NSButton) {
+        guard let slug = sender.identifier?.rawValue,
+              let source = sourceDeleteTargets[slug] else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Delete \(source.displayName)?"
+        var cleanupHooks = false
+        if source.method == "reported" || source.type == "reported" {
+            alert.informativeText = "Disable removes the StayUp source and replaces its wrapper with a harmless no-op, without editing the tool's hook config. Clean Up Hooks also removes StayUp hook entries from that tool's config. Neither option deletes the app, tool, model files, projects, or logs."
+            alert.addButton(withTitle: "Disable")
+            alert.addButton(withTitle: "Clean Up Hooks")
+            alert.addButton(withTitle: "Cancel")
+            let response = alert.runModal()
+            guard response != .alertThirdButtonReturn else { return }
+            cleanupHooks = (response == .alertSecondButtonReturn)
+        } else {
+            alert.informativeText = "This removes its StayUp setup and disables it. It will not delete the app or tool itself."
+            alert.addButton(withTitle: "Delete")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+
+        do {
+            try ExternalSourceWatcher.deleteConfiguredSource(source, cleanupHooks: cleanupHooks)
+            rebuildSourceList()
+            sourceActionNote.stringValue = cleanupHooks
+                ? "Deleted \(source.displayName) and cleaned up StayUp hook entries."
+                : "Disabled \(source.displayName) in Activity Sources."
+            onChange?()
+        } catch {
+            sourceActionNote.stringValue = "Could not delete \(source.displayName): \(error.localizedDescription)"
+        }
+    }
+    @objc private func restoreSource(_ sender: NSButton) {
+        guard let slug = sender.identifier?.rawValue,
+              let source = sourceDeleteTargets[slug] else { return }
+
+        do {
+            try ExternalSourceWatcher.restoreConfiguredSource(source)
+            rebuildSourceList()
+            sourceActionNote.stringValue = "Restored \(source.displayName). Tick it to trust it for Auto."
+            onChange?()
+        } catch {
+            sourceActionNote.stringValue = "Could not restore \(source.displayName): \(error.localizedDescription)"
+        }
+    }
+    @objc private func connectSourceHooks(_ sender: NSButton) {
+        guard let slug = sender.identifier?.rawValue,
+              let source = sourceDeleteTargets[slug] else { return }
+
+        do {
+            Settings.setReportedHookConnectionAllowed(true)
+            try ActivitySourceHookInstaller.installHooks(for: source.key)
+            rebuildSourceList()
+            sourceActionNote.stringValue = "Connected \(source.displayName). Tick it to trust it for Auto."
+            onChange?()
+        } catch {
+            sourceActionNote.stringValue = "Could not connect \(source.displayName): \(error.localizedDescription)"
+        }
+    }
+    @objc private func cleanupSourceHooks(_ sender: NSButton) {
+        guard let slug = sender.identifier?.rawValue,
+              let source = sourceDeleteTargets[slug] else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Clean up hooks for \(source.displayName)?"
+        alert.informativeText = "This removes only StayUp hook entries from that tool's config. It leaves the tool, projects, logs, and other hooks alone."
+        alert.addButton(withTitle: "Clean Up Hooks")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            try ActivitySourceHookInstaller.cleanupHooks(for: source.key)
+            sourceActionNote.stringValue = "Cleaned up StayUp hook entries for \(source.displayName)."
+        } catch {
+            sourceActionNote.stringValue = "Could not clean up hooks for \(source.displayName): \(error.localizedDescription)"
+        }
+    }
+    /// Launch the bundled live tester (tools/stayup.sh) in Terminal. `open -a`
+    /// avoids the AppleScript Automation prompt.
+    @objc private func launchTester() {
+        let url = Bundle.main.url(forResource: "stayup", withExtension: "sh")
+            ?? URL(fileURLWithPath: "/Applications/StayUp.app/Contents/Resources/stayup.sh")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["-a", "Terminal", url.path]
+        try? p.run()
+    }
+    @objc private func loginToggled() {
+        loginToggle?(loginCheck.state == .on)
+    }
+    @objc private func skinChanged() {
+        guard let id = skinPopUp.selectedItem?.representedObject as? String else { return }
+        Settings.skinId = id
+        IconRenderer.invalidateCache()
+        onChange?()
+    }
+    @objc private func reopenWelcome() {
+        openWelcome?()
+    }
+    @objc private func openTipPage() {
+        if let url = URL(string: "https://getstayup.app/tip") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    @objc private func autoUpdateToggled() {
+        SparkleUpdater.shared.automaticChecksEnabled = (autoUpdateCheck.state == .on)
+    }
+    @objc private func checkUpdatesNow() {
+        SparkleUpdater.shared.checkForUpdatesNow()
+    }
+    @objc private func helperAction() {
+        let helper = StayUpHelper.shared
+        switch helper.status {
+        case .enabled:
+            // Uninstall is destructive — removes the SMAppService.daemon
+            // registration entirely. Battery + lid closed coverage stops
+            // until the user clicks Set up again. Confirm before doing it.
+            let alert = NSAlert()
+            alert.messageText     = "Uninstall the Helper?"
+            alert.informativeText = "Duck loses its lid-closed-on-battery powers until you set it up again. macOS will ask for approval again on next setup."
+            alert.alertStyle      = .warning
+            alert.addButton(withTitle: "Uninstall")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+            // CRITICAL: send `disable` to the daemon BEFORE unregistering it
+            // so it runs `pmset disablesleep 0`. SMAppService.unregister()
+            // SIGTERMs the daemon immediately; without this disable first,
+            // the daemon dies while SleepDisabled=1 is still set system-wide,
+            // and the Mac refuses to sleep until reboot (or a sudo pmset
+            // round-trip). The 300ms sleep gives the daemon time to flush
+            // its pmset call — `helper.disable()` is fire-and-forget over
+            // the socket and doesn't wait for the daemon's reply.
+            helper.disable()
+            Thread.sleep(forTimeInterval: 0.3)
+
+            do { try helper.unregister() }
+            catch { presentHelperError("Couldn't uninstall the Helper", error) }
+        case .requiresApproval:
+            helper.openLoginItemsPane()
+        case .notRegistered, .notFound:
+            do { try helper.register() }
+            catch { presentHelperError("Couldn't set up the Helper", error) }
+            if helper.status == .requiresApproval {
+                helper.openLoginItemsPane()
+            }
+        @unknown default:
+            break
+        }
+        syncHelper()
+    }
+
+    private func presentHelperError(_ title: String, _ error: Error) {
+        let alert = NSAlert()
+        alert.messageText     = title
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle      = .warning
+        alert.runModal()
+    }
+}
+
+private extension NSToolbarItem.Identifier {
+    static let stayupGeneral  = NSToolbarItem.Identifier("stayup.settings.general")
+    static let stayupAdvanced = NSToolbarItem.Identifier("stayup.settings.advanced")
+    static let stayupLook     = NSToolbarItem.Identifier("stayup.settings.look")
+    static let stayupAbout    = NSToolbarItem.Identifier("stayup.settings.about")
+}
