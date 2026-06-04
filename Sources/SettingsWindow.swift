@@ -5,7 +5,7 @@ import ServiceManagement
 /// NSToolbar tabs across the top, content pane below, window
 /// auto-resizes vertically as you switch tabs.
 ///
-/// Why toolbar tabs and not the sidebar I tried first: 4 sections is
+/// Why toolbar tabs and not the sidebar I tried first: 5 sections is
 /// the sweet spot for top-tab navigation (3–10 items). Sidebar nav
 /// pays a fixed chrome cost (~150pt of permanent width) that only
 /// amortizes past ~10 sections. For us it's pure tax — every section
@@ -34,7 +34,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
     /// Tab identifiers. Kept in this order — affects the toolbar layout.
     private let tabIDs: [NSToolbarItem.Identifier] = [
-        .stayupGeneral, .stayupAdvanced, .stayupLook, .stayupAbout,
+        .stayupGeneral, .stayupAdvanced, .stayupWalk, .stayupLook, .stayupAbout,
     ]
     private var sectionViews: [NSToolbarItem.Identifier: NSView] = [:]
 
@@ -120,6 +120,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             switch id {
             case .stayupGeneral:  v = buildGeneralView()
             case .stayupAdvanced: v = buildAdvancedView()
+            case .stayupWalk:     v = buildWalkView()
             case .stayupLook:     v = buildLookView()
             case .stayupAbout:    v = buildAboutView()
             default:             v = NSView()
@@ -162,6 +163,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         case .stayupAdvanced:
             item.label = "Advanced"
             item.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Advanced")
+        case .stayupWalk:
+            item.label = "Walk"
+            item.image = NSImage(systemSymbolName: "figure.walk", accessibilityDescription: "Walk")
         case .stayupLook:
             item.label = "Look"
             item.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: "Look")
@@ -272,7 +276,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     }
 
     /// Advanced tab — keep-screen-on + Activity Source tuning (Auto mode is
-    /// set in General -> Mode) + the walk animation.
+    /// set in General -> Mode).
     private func buildAdvancedView() -> NSView {
         let (container, stack) = sectionContainer()
 
@@ -394,8 +398,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         stack.addArrangedSubview(sourceActionNote)
         sourceActionNote.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        // ---- Walk animation ----
-        addSeparator(in: stack)
+        return container
+    }
+
+    private func buildWalkView() -> NSView {
+        let (container, stack) = sectionContainer()
+
         let walkHeader = NSTextField(labelWithString: "Walk")
         walkHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(walkHeader)
@@ -1268,6 +1276,7 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
 private extension NSToolbarItem.Identifier {
     static let stayupGeneral  = NSToolbarItem.Identifier("stayup.settings.general")
     static let stayupAdvanced = NSToolbarItem.Identifier("stayup.settings.advanced")
+    static let stayupWalk     = NSToolbarItem.Identifier("stayup.settings.walk")
     static let stayupLook     = NSToolbarItem.Identifier("stayup.settings.look")
     static let stayupAbout    = NSToolbarItem.Identifier("stayup.settings.about")
 }
