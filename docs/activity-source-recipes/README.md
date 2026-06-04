@@ -20,3 +20,4 @@ Start from [_template.md](./_template.md).
 Examples:
 
 - [Claude Code CLI](./claude-code-cli.md)
+- [Codex CLI](./codex-cli.md)
