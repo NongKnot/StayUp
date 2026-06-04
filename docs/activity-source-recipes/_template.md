@@ -1,0 +1,83 @@
+# Activity Source: Tool Surface Name
+
+Status: proposed / needs user test / verified
+
+## Exact Surface
+
+Name the exact CLI, desktop app, IDE extension, daemon, local runner, or browser
+automation surface.
+
+Do not use only a brand name if the brand has multiple surfaces.
+
+## Method
+
+Pick one:
+
+- `reported`
+- `file`
+- `logPattern`
+- `socket`
+- `process`
+
+## Idle Proof
+
+Describe the state with the tool open but not working.
+
+```text
+commands, paths, or observations
+```
+
+## Active Proof
+
+Describe one small local job and the signal observed while it ran.
+
+```text
+commands, paths, or observations
+```
+
+## Stop Proof
+
+Describe what happens right after the job stops and after a short delay.
+
+```text
+commands, paths, or observations
+```
+
+## Recipe
+
+For observed sources:
+
+```json
+{
+  "schema": "app.getstayup.activity-source.v1",
+  "name": "Tool Name",
+  "displayName": "Tool Name",
+  "type": "file",
+  "path": "~/path/to/file-or-glob",
+  "freshSecs": 45
+}
+```
+
+For reported sources:
+
+```text
+hook config path:
+events:
+actions:
+commands:
+wrapper path:
+```
+
+## False Positives
+
+What could make Duck think work is happening when it is not?
+
+## False Negatives
+
+What real work might this miss?
+
+## Cleanup
+
+If this edits third-party config, describe how cleanup removes only StayUp-owned
+entries and leaves user data alone.
+

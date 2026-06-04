@@ -143,6 +143,31 @@ user chooses not to connect, Auto still works for observed sources such as
 Ollama and LM Studio. If a connection fails, StayUp leaves Auto on, reports the
 failure, and the source can be connected later from Settings.
 
+## Contributing A Source
+
+Contributors can help Duck learn more tools without starting in app code.
+
+Use one of these paths:
+
+- Open an Activity Source proposal issue with idle, active, and stop proof.
+- Add a recipe under [activity-source-recipes](./activity-source-recipes/) using
+  the [template](./activity-source-recipes/_template.md).
+
+Keep proposals narrow:
+
+- Name the exact surface: CLI, desktop app, IDE extension, daemon, local runner,
+  or browser automation surface.
+- Pick only supported v1 methods: `reported`, `file`, `logPattern`, `socket`,
+  or `process`.
+- Prove the idle state is quiet.
+- Prove a real local job becomes visible.
+- Prove the signal returns idle after stopping, including delayed cleanup.
+- Explain false positives and false negatives.
+
+Recipes are not automatically bundled. They are the proving ground. A source can
+graduate into the app's prefilled list only after it passes real idle-vs-active
+testing and has safe cleanup behavior.
+
 ## Copy Prompt For A Local Tool
 
 Use this with a local tool or app surface:
@@ -179,6 +204,7 @@ StayUp source model:
 - Custom reported sources do not require StayUp app-code changes. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh that sets STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, and STAYUP_SOURCE_KEY, exports them, then execs ~/.stayup/bin/stayup-source-hook.sh "$@". Install the target tool's hooks so each event calls that wrapper with one StayUp action. The script creates the reported source.json automatically on first heartbeat.
 - If reinstalling or restoring a reported source and its source-specific wrapper already exists as a harmless no-op, overwrite that wrapper with the real source wrapper. If the target tool's hooks already call that wrapper with the right actions, reuse them instead of adding duplicates.
 - If ~/.stayup/bin/stayup-source-hook.sh is missing, create ~/.stayup/bin and copy it from /Applications/StayUp.app/Contents/Resources/stayup-source-hook.sh when that file exists, then chmod 755 it. If the installed app resource is unavailable, ask the user to open StayUp or return needs_user_test. Do not edit the StayUp source repo.
+- Codex CLI trust step: after installing Codex CLI hooks, tell the user to close any open Codex CLI session, reopen `codex`, then trust the StayUp hooks when Codex shows "hooks need review." The trusted path should be ~/.stayup/bin/stayup-source-hook-codex-cli.sh. Codex may show 7 hook events; that is expected because one StayUp wrapper is attached to several Codex lifecycle events.
 - Fallback observed types are exactly: file, logPattern, socket, process.
 - Do not invent other type values.
 

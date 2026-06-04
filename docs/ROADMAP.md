@@ -48,6 +48,10 @@ Nothing is trusted until the user ticks it in Settings.
 
 ## Research Backlog
 
+Contributor source proposals should start as issues or docs recipes, not app
+code. Use `docs/activity-source-recipes/_template.md` and graduate only the
+sources that pass the acceptance gate below.
+
 ### Coding Agents
 
 - OpenCode: high priority after v1.0. It is a popular open-source coding agent

@@ -812,6 +812,23 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
     }
 
+    private static let codexTrustNote =
+        "Connected Codex CLI. Close any open Codex CLI session, reopen `codex`, then trust the StayUp hooks when Codex asks. The path should be ~/.stayup/bin/stayup-source-hook-codex-cli.sh."
+
+    private static func connectHookMessage(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
+        var text = "StayUp needs to add its own hook entries before Auto can trust this source. Existing config is preserved, and cleanup removes only StayUp entries."
+        if source.key == "Codex" {
+            text += "\n\nCodex needs one more nod after this: close any open Codex CLI session, reopen `codex`, then trust the StayUp hooks when Codex asks. Codex may show 7 hook events; they all call one StayUp wrapper at ~/.stayup/bin/stayup-source-hook-codex-cli.sh."
+        }
+        return text
+    }
+
+    private static func connectedHookNote(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
+        source.key == "Codex"
+            ? codexTrustNote
+            : "Connected \(source.displayName). Tick it to trust it for Auto."
+    }
+
     private static let sourceSetupPrompt = """
 You are setting up one StayUp Activity Source for one local tool or app surface on this Mac.
 
@@ -844,6 +861,7 @@ StayUp source model:
 - Custom reported sources do not require StayUp app-code changes. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh that sets STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, and STAYUP_SOURCE_KEY, exports them, then execs ~/.stayup/bin/stayup-source-hook.sh "$@". Install the target tool's hooks so each event calls that wrapper with one StayUp action. The script creates the reported source.json automatically on first heartbeat.
 - If reinstalling or restoring a reported source and its source-specific wrapper already exists as a harmless no-op, overwrite that wrapper with the real source wrapper. If the target tool's hooks already call that wrapper with the right actions, reuse them instead of adding duplicates.
 - If ~/.stayup/bin/stayup-source-hook.sh is missing, create ~/.stayup/bin and copy it from /Applications/StayUp.app/Contents/Resources/stayup-source-hook.sh when that file exists, then chmod 755 it. If the installed app resource is unavailable, ask the user to open StayUp or return needs_user_test. Do not edit the StayUp source repo.
+- Codex CLI trust step: after installing Codex CLI hooks, tell the user to close any open Codex CLI session, reopen `codex`, then trust the StayUp hooks when Codex shows "hooks need review." The trusted path should be ~/.stayup/bin/stayup-source-hook-codex-cli.sh. Codex may show 7 hook events; that is expected because one StayUp wrapper is attached to several Codex lifecycle events.
 - Fallback observed types are exactly: file, logPattern, socket, process.
 - Do not invent other type values.
 
@@ -1054,6 +1072,11 @@ If no supported source is strong enough, say what support would make it detectab
 
         Settings.setSource(key, enabled: enabling)
         rebuildSourceList()
+        if enabling,
+           let source = ExternalSourceWatcher.configuredSourceInfo().first(where: { $0.key == key }),
+           source.key == "Codex" {
+            sourceActionNote.stringValue = Self.codexTrustNote
+        }
         onChange?()
     }
 
@@ -1061,7 +1084,7 @@ If no supported source is strong enough, say what support would make it detectab
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Connect \(source.displayName)?"
-        alert.informativeText = "StayUp needs to add its own hook entries before Auto can trust this source. Existing config is preserved, and cleanup removes only StayUp entries."
+        alert.informativeText = Self.connectHookMessage(for: source)
         alert.addButton(withTitle: "Connect")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
@@ -1136,7 +1159,7 @@ If no supported source is strong enough, say what support would make it detectab
             Settings.setReportedHookConnectionAllowed(true)
             try ActivitySourceHookInstaller.installHooks(for: source.key)
             rebuildSourceList()
-            sourceActionNote.stringValue = "Connected \(source.displayName). Tick it to trust it for Auto."
+            sourceActionNote.stringValue = Self.connectedHookNote(for: source)
             onChange?()
         } catch {
             sourceActionNote.stringValue = "Could not connect \(source.displayName): \(error.localizedDescription)"
