@@ -233,13 +233,13 @@ Workflow:
 6. Otherwise choose the smallest observed signal that is quiet when idle and active during work.
 7. If the evidence is weak, return needs_user_test or no_source. Do not guess.
 
-If you are asked to install a ready source, do not edit StayUp app code. For reports_activity, install hooks in the target tool's own hook/config file so each event calls the source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh. For file, logPattern, socket, or process, create exactly one source.json under ~/.stayup/sources/<source-slug>/source.json.
+If you are asked to install a ready source, do not edit StayUp app code. For reported, install hooks in the target tool's own hook/config file so each event calls the source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh. For file, logPattern, socket, or process, create exactly one source.json under ~/.stayup/sources/<source-slug>/source.json.
 
 Return exactly this structure and no extra prose:
 
 STAYUP_ACTIVITY_SOURCE_RESULT
 status: ready | needs_user_test | no_source
-source_method: reports_activity | file | logPattern | socket | process | needs_user_test | no_source
+source_method: reported | file | logPattern | socket | process | needs_user_test | no_source
 surface:
 reported_activity_plan:
 - tool_hook_config_path:
@@ -270,7 +270,7 @@ why_this_means_local_work:
 false_positives:
 false_negatives:
 user_instruction:
-If source_method is reports_activity, add hooks to the tool's own hook/config file. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh; each hook should call that wrapper with one action: turn-start, active, waiting, stop, and only use tool-begin/tool-end for reliable paired tool lifecycle events. The wrapper should set and export STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, and optional STAYUP_SESSION_ID, then exec ~/.stayup/bin/stayup-source-hook.sh "$@". If source_method is file, logPattern, socket, or process, save observed_source as ~/.stayup/sources/<source-slug>/source.json, then open StayUp Settings -> Advanced, click Refresh, and tick the source.
+If source_method is reported, add hooks to the tool's own hook/config file. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh; each hook should call that wrapper with one action: turn-start, active, waiting, stop, and only use tool-begin/tool-end for reliable paired tool lifecycle events. The wrapper should set and export STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, and optional STAYUP_SESSION_ID, then exec ~/.stayup/bin/stayup-source-hook.sh "$@". If source_method is file, logPattern, socket, or process, save observed_source as ~/.stayup/sources/<source-slug>/source.json, then open StayUp Settings -> Advanced, click Refresh, and tick the source.
 If no supported source is strong enough, say what support would make it detectable, such as a native heartbeat hook, task-state API, lifecycle log, active-work socket, or parent-scoped child-process tracking.
 ````
 
@@ -323,6 +323,6 @@ If candidate files are added later, they should also use a fixed schema:
   },
   "falsePositives": [],
   "falseNegatives": [],
-  "notes": "User must approve before this becomes an sources/<tool>/source.json file."
+  "notes": "User must approve before this becomes a sources/<tool>/source.json file."
 }
 ```
