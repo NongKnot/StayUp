@@ -2,15 +2,14 @@ import Cocoa
 import Foundation
 
 /// Wraps Apple's private `CGVirtualDisplay` API to spawn one invisible
-/// virtual display. The OS treats it as a real external display and applies
-/// clamshell-with-display policy — *the system never goes to sleep when an
-/// external display is connected, even on battery*.
+/// virtual display. This is the "remote GUI still has a screen to stream"
+/// layer when no real external display is attached.
 ///
-/// This is one of only two mechanisms that survive battery + closed lid on
-/// Apple Silicon (the other is `pmset disablesleep` via the helper daemon).
-/// caffeinate, IOKit assertions, and ProcessInfo activity are all overridden
-/// by firmware in that scenario. Without VirtualDisplay, users who haven't
-/// installed the helper would lose battery + clamshell coverage entirely.
+/// This is not the hard battery + closed-lid sleep-prevention mechanism on
+/// Apple Silicon. The helper daemon's `pmset disablesleep` path owns that.
+/// VirtualDisplay is here for headless-ish GUI workflows: Screen Sharing,
+/// Chrome Remote Desktop, and similar tools that behave better when macOS has
+/// a display-shaped thing in the screen list.
 ///
 /// Same approach as the open-source BetterDummy app, trimmed to a single
 /// fixed-resolution display. Failure is silent: if creation fails (private
