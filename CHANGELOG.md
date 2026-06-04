@@ -58,6 +58,13 @@ land below it.
   Walk mode. Don't Die uses a 5%/10%/20% dropdown; the Duck skin picker
   shows a colored swatch next to each option (Mono renders as a
   light/dark split to indicate "adapts to menu bar").
+- **Auto mode Activity Sources.** Bundled starter sources cover Claude Code
+  CLI, Codex CLI, LM Studio, and Ollama. Sources are local, opt-in, and must
+  prove active work instead of merely proving that an app is open.
+- **Safe Activity Source setup and cleanup.** The copied setup prompt asks the
+  agent to test idle, active, and stopped states before writing anything.
+  Normal Delete safe-disables a reported source with a no-op wrapper; Clean Up
+  Hooks removes only StayUp-owned hook entries.
 - **Launch at Login** registers via `SMAppService.mainApp`, so the
   entry shows up in System Settings → Login Items & Extensions →
   "Open at Login" labeled "StayUp" with the app icon. Earlier
