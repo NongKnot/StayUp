@@ -123,12 +123,8 @@ final class ExternalSourceWatcher {
                     isDeleted: false
                 )
             })
-        let deletedBundled = bundledSourceInfos().filter { candidate in
-            Settings.isSourceDeleted(candidate.key) &&
-            !sources.contains { $0.key == candidate.key }
-        }
-        if !sources.isEmpty || !deletedBundled.isEmpty {
-            return sources + deletedBundled
+        if !sources.isEmpty {
+            return sources
         }
 
         return bundledSourceInfos().filter { !Settings.isSourceDeleted($0.key) }
@@ -185,6 +181,15 @@ final class ExternalSourceWatcher {
                 try ActivitySourceHookInstaller.installHooks(for: normalized.name)
             }
         }
+    }
+
+    static func restoreBundledDefaults() {
+        for source in reportedSources + defaults {
+            Settings.setSourceDeleted(source.name, deleted: false)
+            Settings.setSource(source.name, enabled: false)
+        }
+        writeSourceFilesIfMissing(defaults)
+        writeReportedSourceFilesIfMissing()
     }
 
     private func isActive(_ s: Source) -> Bool {

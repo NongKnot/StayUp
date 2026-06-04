@@ -60,7 +60,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     /// Width of every section's content. Window resizes height per
     /// section but keeps a uniform width so toolbar items don't
     /// shimmy around on tab switches.
-    private let contentWidth: CGFloat = 460
+    private let contentWidth: CGFloat = 520
 
     /// Called whenever a setting changes so MenuController can refresh
     /// the menu bar.
@@ -206,14 +206,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             action: #selector(modeChanged))
         modeControl.segmentStyle = .rounded
         stack.addArrangedSubview(modeControl)
-        addDesc("Off: no sleep protection. On: protect now. Auto: protect only while selected Activity Sources are active.", in: stack)
+        addDesc("Off: idle. On: stay awake now. Auto: only while trusted sources work.", in: stack)
 
         addGap(in: stack)
 
         loginCheck = NSButton(checkboxWithTitle: "Launch at Login",
                               target: self, action: #selector(loginToggled))
         stack.addArrangedSubview(loginCheck)
-        addDesc("Duck shows up when you do.", in: stack)
+        addDesc("Start Duck when you log in.", in: stack)
 
         addGap(in: stack)
 
@@ -252,15 +252,15 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         ])
         stack.addArrangedSubview(ddIndent)
         ddIndent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        addDesc("Duck won't let your MacBook die.", in: stack)
+        addDesc("Duck stands down before low battery.", in: stack)
 
         // Helper — the one layer that truly survives battery + lid-closed on
         // Apple Silicon (root daemon → pmset disablesleep).
         addGap(in: stack, height: 18)
-        let helperHeader = NSTextField(labelWithString: "Helper — lid-closed on battery")
+        let helperHeader = NSTextField(labelWithString: "Helper")
         helperHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(helperHeader)
-        addDesc("Set this up. Battery plus lid closed is the hard case, and the Helper is how Duck handles it.", in: stack)
+        addDesc("Required for lid-closed battery mode.", in: stack)
         helperStatus = NSTextField(labelWithString: "—")
         helperStatus.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         stack.addArrangedSubview(helperStatus)
@@ -277,10 +277,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         let (container, stack) = sectionContainer()
 
         // Keep screen on (vs let the Mac lock).
-        screenLockCheck = NSButton(checkboxWithTitle: "Keep the screen on too (no lock screen)",
+        screenLockCheck = NSButton(checkboxWithTitle: "Keep screen on",
                                    target: self, action: #selector(screenLockToggled))
         stack.addArrangedSubview(screenLockCheck)
-        addDesc("On: screen stays lit, never locks. Off: Mac keeps working but can lock — safer if you wander off.", in: stack)
+        addDesc("Off lets the Mac lock while work continues.", in: stack)
 
         // Activity Sources — one user-facing workflow. Some tools report their
         // own activity; others are observed by local file/log/socket/CPU clues.
@@ -288,13 +288,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         let aiHeader = NSTextField(labelWithString: "Activity Sources")
         aiHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(aiHeader)
-        addDesc("Auto uses these local sources to decide when Duck should stay up. Each source must prove real work, not just that an app is open.", in: stack)
+        addDesc("Auto trusts selected local work signals.", in: stack)
 
         sourceSummary = NSTextField(labelWithString: "")
         sourceSummary.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         sourceSummary.textColor = .secondaryLabelColor
-        sourceSummary.maximumNumberOfLines = 0
-        sourceSummary.lineBreakMode = .byWordWrapping
+        sourceSummary.maximumNumberOfLines = 1
+        sourceSummary.lineBreakMode = .byTruncatingTail
         sourceSummary.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(sourceSummary)
         sourceSummary.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -304,7 +304,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         graceRow.orientation = .horizontal
         graceRow.spacing     = 8
         graceRow.alignment   = .centerY
-        let graceLabel = NSTextField(labelWithString: "After activity stops:")
+        let graceLabel = NSTextField(labelWithString: "After stop:")
         graceLabel.font = NSFont.systemFont(ofSize: 11)
         graceLabel.textColor = .secondaryLabelColor
         autoGracePopup = NSPopUpButton()
@@ -331,7 +331,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         ])
         stack.addArrangedSubview(graceIndent)
         graceIndent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        addDesc("Auto releases after this wait period. Manual On and Off still override Auto directly.", in: stack)
+        addDesc("Duck waits before standing down.", in: stack)
 
         // Which sources to trust — a scrollable list that scales as users add
         // more sources. Nothing's on until the user ticks it.
@@ -344,8 +344,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         sourceListStack = NSStackView()
         sourceListStack.orientation = .vertical
         sourceListStack.alignment   = .leading
-        sourceListStack.spacing     = 2
-        sourceListStack.edgeInsets  = NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
+        sourceListStack.spacing     = 0
         sourceListStack.translatesAutoresizingMaskIntoConstraints = false
         rebuildSourceList()
 
@@ -354,30 +353,33 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         doc.addSubview(sourceListStack)
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
         scroll.drawsBackground = false
         scroll.borderType = .bezelBorder
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.documentView = doc
         stack.addArrangedSubview(scroll)
         NSLayoutConstraint.activate([
-            sourceListStack.topAnchor.constraint(equalTo: doc.topAnchor),
-            sourceListStack.leadingAnchor.constraint(equalTo: doc.leadingAnchor),
-            sourceListStack.trailingAnchor.constraint(equalTo: doc.trailingAnchor),
-            sourceListStack.bottomAnchor.constraint(equalTo: doc.bottomAnchor),
-            doc.widthAnchor.constraint(equalTo: scroll.widthAnchor),       // no horizontal scroll
+            sourceListStack.topAnchor.constraint(equalTo: doc.topAnchor, constant: 8),
+            sourceListStack.leadingAnchor.constraint(equalTo: doc.leadingAnchor, constant: 10),
+            sourceListStack.trailingAnchor.constraint(equalTo: doc.trailingAnchor, constant: -10),
+            sourceListStack.bottomAnchor.constraint(equalTo: doc.bottomAnchor, constant: -8),
+            doc.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor), // no horizontal scroll
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 146),          // ~4 rich rows; scrolls beyond
+            scroll.heightAnchor.constraint(equalToConstant: 206),
         ])
-        addDesc("Tick only sources you trust. A disabled source can be present on disk but cannot wake Duck.", in: stack)
+        addDesc("Tick sources you trust. Disabled sources cannot wake Duck.", in: stack)
 
         let sourceButtonRow = NSStackView()
         sourceButtonRow.orientation = .horizontal
         sourceButtonRow.spacing     = 8
         sourceButtonRow.alignment   = .centerY
         for button in [
-            NSButton(title: "Copy setup prompt", target: self, action: #selector(copySourcePrompt)),
-            NSButton(title: "Open sources folder", target: self, action: #selector(openSourcesFolder)),
+            NSButton(title: "Copy Prompt", target: self, action: #selector(copySourcePrompt)),
+            NSButton(title: "Open Folder", target: self, action: #selector(openSourcesFolder)),
             NSButton(title: "Refresh", target: self, action: #selector(refreshSourceList)),
+            NSButton(title: "Restore Defaults", target: self, action: #selector(restoreDefaultSources)),
         ] {
             button.bezelStyle = .rounded
             sourceButtonRow.addArrangedSubview(button)
@@ -387,8 +389,8 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         sourceActionNote = NSTextField(labelWithString: "")
         sourceActionNote.font = NSFont.systemFont(ofSize: 10)
         sourceActionNote.textColor = .tertiaryLabelColor
-        sourceActionNote.maximumNumberOfLines = 0
-        sourceActionNote.lineBreakMode = .byWordWrapping
+        sourceActionNote.maximumNumberOfLines = 2
+        sourceActionNote.lineBreakMode = .byTruncatingTail
         sourceActionNote.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(sourceActionNote)
         sourceActionNote.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -402,7 +404,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         walkCheck = NSButton(checkboxWithTitle: "Walk mode",
                              target: self, action: #selector(walkToggled))
         stack.addArrangedSubview(walkCheck)
-        addDesc("Duck walks when you do. Only sniffs the accelerometer while engaged.", in: stack)
+        addDesc("Duck walks with your MacBook. Accelerometer stays local.", in: stack)
 
         walkHardwareNote = NSTextField(labelWithString: "No accelerometer on this Mac. Duck stays put.")
         walkHardwareNote.font = NSFont.systemFont(ofSize: 11)
@@ -419,13 +421,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         roastCheck = NSButton(checkboxWithTitle: "Roast me",
                               target: self, action: #selector(roastChanged))
         stack.addArrangedSubview(roastCheck)
-        addDesc("Duck heckles your step count.", in: stack)
+        addDesc("Duck heckles the step count.", in: stack)
 
         addGap(in: stack, height: 14)
         let statsHeader = NSTextField(labelWithString: "Walk log")
         statsHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(statsHeader)
-        addDesc("Step totals soon. Duck still learning to keep a diary.", in: stack)
+        addDesc("Coming later. Duck is still learning to keep a diary.", in: stack)
 
         return container
     }
@@ -449,7 +451,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         skinRow.addArrangedSubview(skinPopUp)
         stack.addArrangedSubview(skinRow)
 
-        addDesc("Pick a Duck. Mono is the quiet one — it adapts to dark mode.", in: stack)
+        addDesc("Pick a Duck. Mono adapts to dark mode.", in: stack)
 
         rebuildSkinPicker()
 
@@ -499,7 +501,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             seen.insert(source.key).inserted
         }
         guard !sources.isEmpty else {
-            let empty = NSTextField(labelWithString: "No Activity Sources yet. Use the setup prompt or add a source.json, then refresh.")
+            let empty = NSTextField(labelWithString: "No sources yet. Copy the setup prompt or add source.json, then refresh.")
             empty.font = NSFont.systemFont(ofSize: 11)
             empty.textColor = .secondaryLabelColor
             empty.maximumNumberOfLines = 0
@@ -512,74 +514,65 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         }
 
         for source in sources {
-            let enabled = !source.isDeleted && Settings.isSourceEnabled(source.key)
-            let cb = NSButton(checkboxWithTitle: source.displayName, target: self, action: #selector(sourceToggled(_:)))
+            let enabled = Settings.isSourceEnabled(source.key)
+            let cb = NSButton(checkboxWithTitle: "", target: self, action: #selector(sourceToggled(_:)))
             cb.identifier = NSUserInterfaceItemIdentifier(source.key)
             cb.state = enabled ? .on : .off
-            cb.isEnabled = !source.isDeleted
-            cb.font = NSFont.systemFont(ofSize: 12)
             cb.toolTip = source.key == source.displayName ? nil : "Source key: \(source.key)"
+            cb.setContentHuggingPriority(.required, for: .horizontal)
 
-            let note = NSTextField(labelWithString: Self.sourceNote(for: source))
+            let name = NSTextField(labelWithString: source.displayName)
+            name.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+            name.maximumNumberOfLines = 1
+            name.lineBreakMode = .byTruncatingTail
+            name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+            let note = NSTextField(labelWithString: Self.sourceStatus(for: source, enabled: enabled))
             note.font = NSFont.systemFont(ofSize: 10)
             note.textColor = .tertiaryLabelColor
+            note.maximumNumberOfLines = 1
+            note.lineBreakMode = .byTruncatingTail
+            note.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-            let badge = NSTextField(labelWithString: Self.sourceBadge(for: source))
-            badge.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
-            badge.textColor = enabled ? .systemBlue : .tertiaryLabelColor
-            badge.alignment = .right
-            badge.setContentHuggingPriority(.required, for: .horizontal)
-
-            let text = NSStackView(views: [cb, note])
+            let text = NSStackView(views: [name, note])
             text.orientation = .vertical
             text.alignment = .leading
             text.spacing = 0
             text.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
             sourceDeleteTargets[source.folderSlug] = source
             var actions: [NSView] = []
-            if source.isDeleted {
-                let restore = NSButton(title: "Restore", target: self, action: #selector(restoreSource(_:)))
-                restore.bezelStyle = .rounded
-                restore.controlSize = .small
-                restore.font = NSFont.systemFont(ofSize: 11)
-                restore.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
-                actions.append(restore)
-
-                if source.method == "reported" || source.type == "reported" {
-                    let cleanup = NSButton(title: "Clean Up Hooks", target: self, action: #selector(cleanupSourceHooks(_:)))
-                    cleanup.bezelStyle = .rounded
-                    cleanup.controlSize = .small
-                    cleanup.font = NSFont.systemFont(ofSize: 11)
-                    cleanup.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
-                    actions.append(cleanup)
-                }
-            } else {
-                if (source.method == "reported" || source.type == "reported"),
-                   !ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
-                    let connect = NSButton(title: "Connect", target: self, action: #selector(connectSourceHooks(_:)))
-                    connect.bezelStyle = .rounded
-                    connect.controlSize = .small
-                    connect.font = NSFont.systemFont(ofSize: 11)
-                    connect.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
-                    connect.toolTip = "Add StayUp hook entries for \(source.displayName)"
-                    actions.append(connect)
-                }
-
-                let delete = NSButton(title: "Delete", target: self, action: #selector(deleteSource(_:)))
-                delete.bezelStyle = .rounded
-                delete.controlSize = .small
-                delete.font = NSFont.systemFont(ofSize: 11)
-                delete.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
-                delete.toolTip = "Remove \(source.displayName) from StayUp"
-                actions.append(delete)
+            if (source.method == "reported" || source.type == "reported"),
+               !ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
+                let connect = NSButton(title: "Connect", target: self, action: #selector(connectSourceHooks(_:)))
+                connect.bezelStyle = .rounded
+                connect.controlSize = .small
+                connect.font = NSFont.systemFont(ofSize: 11)
+                connect.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
+                connect.toolTip = "Add StayUp hook entries for \(source.displayName)"
+                connect.widthAnchor.constraint(equalToConstant: 72).isActive = true
+                actions.append(connect)
             }
 
-            let row = NSStackView(views: [text, badge] + actions)
+            let delete = NSButton(title: "Delete", target: self, action: #selector(deleteSource(_:)))
+            delete.bezelStyle = .rounded
+            delete.controlSize = .small
+            delete.font = NSFont.systemFont(ofSize: 11)
+            delete.identifier = NSUserInterfaceItemIdentifier(source.folderSlug)
+            delete.toolTip = "Remove \(source.displayName) from StayUp"
+            delete.widthAnchor.constraint(equalToConstant: 72).isActive = true
+            actions.append(delete)
+
+            let row = NSStackView(views: [cb, text, spacer] + actions)
             row.orientation = .horizontal
             row.alignment = .centerY
-            row.spacing = 10
-            row.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
+            row.spacing = 8
+            row.edgeInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
             row.translatesAutoresizingMaskIntoConstraints = false
             stack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -587,38 +580,15 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         updateSourceSummary(sources: sources)
     }
 
-    private static func sourceNote(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
-        if source.isDeleted {
-            return source.method == "reported" || source.type == "reported"
-                ? "disabled; hook wrapper exits safely"
-                : "disabled"
+    private static func sourceStatus(for source: ExternalSourceWatcher.ConfiguredSourceInfo, enabled: Bool) -> String {
+        if enabled {
+            return "Trusted for Auto"
         }
-        if source.method == "reported" || source.type == "reported" {
-            return "direct heartbeat from the tool"
+        if (source.method == "reported" || source.type == "reported"),
+           !ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
+            return "Needs connection"
         }
-        switch source.type {
-        case "file":       return "observed by fresh file"
-        case "logPattern": return "observed by lifecycle log"
-        case "socket":     return "observed by active socket"
-        case "process":    return "observed by CPU while working"
-        default:           return "observed by local clue"
-        }
-    }
-
-    private static func sourceBadge(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
-        if source.isDeleted {
-            return "DISABLED"
-        }
-        if source.method == "reported" || source.type == "reported" {
-            return "REPORTS"
-        }
-        switch source.type {
-        case "file":       return "FILE"
-        case "logPattern": return "LOG"
-        case "socket":     return "SOCKET"
-        case "process":    return "CPU"
-        default:           return "CLUE"
-        }
+        return "Available"
     }
 
     private func updateSourceSummary(sources: [ExternalSourceWatcher.ConfiguredSourceInfo]? = nil) {
@@ -626,10 +596,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         let visibleSources = sources ?? ExternalSourceWatcher.configuredSourceInfo()
         let total = visibleSources.count
         let enabled = visibleSources.filter { Settings.isSourceEnabled($0.key) }.count
-        let mode = Settings.autoSourceEnabled ? "Auto is selected" : "Auto is off"
-        let trusted = enabled == 1 ? "1 trusted source" : "\(enabled) trusted sources"
+        let mode = Settings.autoSourceEnabled ? "Auto on" : "Auto off"
+        let trusted = enabled == 1 ? "1 trusted" : "\(enabled) trusted"
         let found = total == 1 ? "1 found" : "\(total) found"
-        sourceSummary.stringValue = "\(mode). \(trusted) enabled, \(found)."
+        sourceSummary.stringValue = "\(mode) · \(trusted) · \(found)"
         sourceSummary.textColor = Settings.autoSourceEnabled ? .systemBlue : .secondaryLabelColor
     }
 
@@ -710,10 +680,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         let updatesHeader = NSTextField(labelWithString: "Updates")
         updatesHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(updatesHeader)
-        autoUpdateCheck = NSButton(checkboxWithTitle: "Automatically check for updates",
+        autoUpdateCheck = NSButton(checkboxWithTitle: "Automatic updates",
                                    target: self, action: #selector(autoUpdateToggled))
         stack.addArrangedSubview(autoUpdateCheck)
-        addDesc("Duck only phones home to ask if there's a newer Duck. No analytics.", in: stack)
+        addDesc("Only checks for signed updates. No analytics.", in: stack)
         let updateNowButton = NSButton(title: "Check for Updates Now",
                                        target: self, action: #selector(checkUpdatesNow))
         updateNowButton.bezelStyle = .rounded
@@ -986,15 +956,15 @@ If no supported source is strong enough, say what support would make it detectab
     private func syncHelper() {
         switch StayUpHelper.shared.status {
         case .enabled:
-            helperStatus.stringValue = "Helper awake. Real Duck mode."
+            helperStatus.stringValue = "Ready for lid-closed battery mode."
             helperStatus.textColor   = .systemGreen
             helperButton.title       = "Uninstall Helper"
         case .requiresApproval:
-            helperStatus.stringValue = "Waiting for your nod in Login Items."
+            helperStatus.stringValue = "Approve in Login Items."
             helperStatus.textColor   = .systemOrange
             helperButton.title       = "Open System Settings"
         case .notRegistered, .notFound:
-            helperStatus.stringValue = "No Helper, no hard-case promise."
+            helperStatus.stringValue = "Not set up."
             helperStatus.textColor   = .secondaryLabelColor
             helperButton.title       = "Set up"
         @unknown default:
@@ -1093,16 +1063,22 @@ If no supported source is strong enough, say what support would make it detectab
     @objc private func copySourcePrompt() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(Self.sourceSetupPrompt, forType: .string)
-        sourceActionNote.stringValue = "Setup prompt copied. Paste it into the local tool or app surface you want to connect."
+        sourceActionNote.stringValue = "Setup prompt copied."
     }
     @objc private func openSourcesFolder() {
         let url = ExternalSourceWatcher.ensureStayUpFolder()
         NSWorkspace.shared.open(url)
-        sourceActionNote.stringValue = "Opened ~/.stayup. Add or edit sources/<tool>/source.json, inspect active receipts, then Refresh."
+        sourceActionNote.stringValue = "Opened ~/.stayup."
     }
     @objc private func refreshSourceList() {
         rebuildSourceList()
         sourceActionNote.stringValue = "Activity Sources refreshed."
+        onChange?()
+    }
+    @objc private func restoreDefaultSources() {
+        ExternalSourceWatcher.restoreBundledDefaults()
+        rebuildSourceList()
+        sourceActionNote.stringValue = "Default sources restored."
         onChange?()
     }
     @objc private func deleteSource(_ sender: NSButton) {
@@ -1114,7 +1090,7 @@ If no supported source is strong enough, say what support would make it detectab
         alert.messageText = "Delete \(source.displayName)?"
         var cleanupHooks = false
         if source.method == "reported" || source.type == "reported" {
-            alert.informativeText = "Disable removes the StayUp source and replaces its wrapper with a harmless no-op, without editing the tool's hook config. Clean Up Hooks also removes StayUp hook entries from that tool's config. Neither option deletes the app, tool, model files, projects, or logs."
+            alert.informativeText = "Disable removes the StayUp source and leaves tool config alone. Clean Up Hooks also removes StayUp entries from the tool config. Neither deletes apps, models, projects, logs, or unrelated config."
             alert.addButton(withTitle: "Disable")
             alert.addButton(withTitle: "Clean Up Hooks")
             alert.addButton(withTitle: "Cancel")
@@ -1137,19 +1113,6 @@ If no supported source is strong enough, say what support would make it detectab
             onChange?()
         } catch {
             sourceActionNote.stringValue = "Could not delete \(source.displayName): \(error.localizedDescription)"
-        }
-    }
-    @objc private func restoreSource(_ sender: NSButton) {
-        guard let slug = sender.identifier?.rawValue,
-              let source = sourceDeleteTargets[slug] else { return }
-
-        do {
-            try ExternalSourceWatcher.restoreConfiguredSource(source)
-            rebuildSourceList()
-            sourceActionNote.stringValue = "Restored \(source.displayName). Tick it to trust it for Auto."
-            onChange?()
-        } catch {
-            sourceActionNote.stringValue = "Could not restore \(source.displayName): \(error.localizedDescription)"
         }
     }
     @objc private func connectSourceHooks(_ sender: NSButton) {
@@ -1233,16 +1196,19 @@ If no supported source is strong enough, say what support would make it detectab
             alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-            // CRITICAL: send `disable` to the daemon BEFORE unregistering it
-            // so it runs `pmset disablesleep 0`. SMAppService.unregister()
-            // SIGTERMs the daemon immediately; without this disable first,
-            // the daemon dies while SleepDisabled=1 is still set system-wide,
-            // and the Mac refuses to sleep until reboot (or a sudo pmset
-            // round-trip). The 300ms sleep gives the daemon time to flush
-            // its pmset call — `helper.disable()` is fire-and-forget over
-            // the socket and doesn't wait for the daemon's reply.
-            helper.disable()
-            Thread.sleep(forTimeInterval: 0.3)
+            // CRITICAL: wait for the daemon to confirm `pmset disablesleep 0`
+            // before unregistering. SMAppService.unregister() stops the
+            // daemon; if we kill it before pmset finishes, the system-wide
+            // disablesleep flag can stay stuck on.
+            guard helper.disableAndWait() else {
+                let error = NSError(
+                    domain: "app.getstayup.helper",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "Duck could not confirm macOS sleep was restored. Try again while the Helper is running."])
+                presentHelperError("Couldn't uninstall the Helper", error)
+                return
+            }
 
             do { try helper.unregister() }
             catch { presentHelperError("Couldn't uninstall the Helper", error) }
