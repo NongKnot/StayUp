@@ -94,7 +94,6 @@ Docs:
 - Activity Source contract: [docs/activity-source-contract.md](./docs/activity-source-contract.md)
 - Setup prompt and examples: [docs/activity-sources.md](./docs/activity-sources.md)
 - Contributor recipes: [docs/activity-source-recipes](./docs/activity-source-recipes/)
-- Launch kit: [docs/LAUNCH.md](./docs/LAUNCH.md)
 
 ## 🔒 Privacy
 
