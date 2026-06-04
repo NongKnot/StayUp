@@ -224,12 +224,12 @@ Good signals mean active local work:
 
 Bad signals:
 - app is installed, authenticated, or configured
-- local LLM model is loaded in RAM, VRAM, memory, or ready state
+- local model is loaded in RAM, VRAM, memory, or ready state
 - generic process exists, unless the user explicitly asked for app-open / presence behavior
 - browser tab or chat text exists
 - cloud/web-only work with no local receipt
 
-Local LLM rule: loaded model, server alive, or model ready is idle unless tokens are being generated, embeddings are running, a download is active, or another local inference/job is actually working.
+Local model rule: loaded model, server alive, or model ready is idle unless tokens are being generated, embeddings are running, a download is active, or another local inference/job is actually working.
 
 Workflow:
 1. If the exact surface is unclear, ask which local app or tool to connect and whether Duck should watch real work or app-open presence.
