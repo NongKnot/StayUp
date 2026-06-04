@@ -11,8 +11,8 @@
 Free Apple Silicon Mac menu-bar Duck that keeps your Mac awake when macOS
 really wants a nap.
 
-Close lid. LLM still running. Render still rendering. Download still
-downloading.
+Close the lid. LLM still running. Render still rendering. Download still
+downloading. Tiny server still doing tiny server things.
 
 Duck up.
 
@@ -20,6 +20,31 @@ Set up the Helper. That is not a side quest. That is the point.
 
 <p align="center">
   <img src="./assets/readme-walk.gif" alt="The StayUp Duck walking" width="200">
+</p>
+
+## Duck Origin
+
+Vienna layover. Hotel room. Danube outside the window.
+
+Ducks on the water, doing Duck things.
+
+The captain calls. "Come hang out."
+
+The local LLM is still running. The render is not done. The download is being
+dramatic.
+
+Close the lid. Walk out.
+
+Duck.
+
+LLM died. Render gone. Hours of work, face down in the river.
+
+Looked at the Danube. Looked at the ducks.
+
+That is the night Duck rose. Up and all night, baby.
+
+<p align="center">
+  <img src="./assets/duck-idle.png" alt="StayUp Duck" width="90">
 </p>
 
 ## What The Duck Does It Do
@@ -177,6 +202,38 @@ Cocoa menu-bar RAM tax.
 
 Duck is not the hot part of the laptop.
 
+Most always-on menu-bar apps poll forever. Duck tries not to be that guy.
+Accelerometer reads only run while engaged. Battery polling is engage-gated.
+Don't Die idles until Duck is actually protecting something.
+
+| Disk footprint | Size |
+|---|---:|
+| App bundle | ~3.8 MB |
+| Sparkle.framework | ~3.0 MB |
+| StayUp binary | ~600 KB |
+| Notarized DMG | ~1.5 MB |
+
+## Why Not Just Use Amphetamine?
+
+Good question. Respect where respect is due:
+[Amphetamine](https://apps.apple.com/app/amphetamine/id937984704) is the
+classic free Mac awake app by William C. Gustafson, and it has helped a lot of
+people for a long time.
+
+StayUp exists for a narrower hard case: Apple Silicon, battery power, lid
+closed, local work still running.
+
+Amphetamine plus Power Protect can cover related workflows by keeping the
+internal display path alive. Duck goes the other way: StayUp can create a
+virtual external display and, with the Helper enabled, ask the system daemon to
+disable sleep for the hard battery-plus-lid case.
+
+Both are valid ponds. Duck built this one because Duck needed this one.
+
+<p align="center">
+  <img src="./assets/duck-side-eye.png" alt="StayUp Duck side eye" width="90">
+</p>
+
 ## Uninstall
 
 Polite path. Good Duck:
@@ -243,3 +300,7 @@ his pond.
 ## License
 
 MIT. See [LICENSE](./LICENSE).
+
+<p align="center">
+  <sub>Duck stays up so you do not have to.</sub>
+</p>
