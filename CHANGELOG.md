@@ -46,16 +46,16 @@ land below it.
   detection can be turned off explicitly; toggle is auto-grayed on
   Macs without an Apple SPU accelerometer (Mac mini / Studio / Pro /
   Intel-era). Walk-related controls (Walk mode, Roast me) live under
-  Settings → Advanced.
+  their own Settings → Walk tab.
 - **First-launch welcome window.** Surfaces Launch at Login, Helper
   setup, and automatic-update opt-in in a single window so new users
   don't have to hunt for the battery+lid coverage path in Settings.
   Defaults are off — encourage, don't presume. Re-openable from
   Settings → About → "Replay welcome."
 - **Settings panel** organized as preference tabs (General · Advanced ·
-  Look · About). General holds Mode, Launch at Login, Don't Die, and
-  Helper setup; Advanced holds screen-lock policy, Activity Sources, and
-  Walk mode. Don't Die uses a 5%/10%/20% dropdown; the Duck skin picker
+  Walk · Look · About). General holds Mode, Launch at Login, Don't Die,
+  and Helper setup; Advanced holds screen-lock policy and Activity Sources.
+  Don't Die uses a 5%/10%/20% dropdown; the Duck skin picker
   shows a colored swatch next to each option (Mono renders as a
   light/dark split to indicate "adapts to menu bar").
 - **Cleaner Settings layout.** Shorter copy, wider spacing, and a cleaner
