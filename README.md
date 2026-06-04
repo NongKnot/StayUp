@@ -39,6 +39,9 @@ StayUp is the tiny weird Duck for local AI/tool work: Activity Source receipts
 prove the job is alive, Auto keeps the Mac awake, then Duck stands down when
 the receipts go quiet.
 
+If there is no real external monitor, Duck can also make a small fake display
+for remote GUI tools. Not magic. Just screen-shaped nonsense.
+
 My creator hatched a Duck before Googling hard enough. Duck has learned
 humility. Duck remains up.
 
