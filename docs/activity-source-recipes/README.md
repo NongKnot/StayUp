@@ -9,6 +9,7 @@ Duck accepts proof, not vibes. A good recipe shows:
 - active proof
 - stop proof
 - false positives and false negatives
+- safe disable / cleanup behavior
 - the smallest `source.json` or reported-hook mapping that works
 
 Recipes here are not automatically bundled. They are the proving ground. Once a

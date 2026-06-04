@@ -37,7 +37,9 @@ commands, paths, or observations
 
 ## Stop Proof
 
-Describe what happens right after the job stops and after a short delay.
+Describe what happens right after the job stops and after about 10 seconds. If
+it still looks active, keep checking for 1-3 minutes and record when it returns
+idle.
 
 ```text
 commands, paths, or observations
@@ -78,6 +80,7 @@ What real work might this miss?
 
 ## Cleanup
 
-If this edits third-party config, describe how cleanup removes only StayUp-owned
-entries and leaves user data alone.
-
+Normal Delete should safe-disable the source without editing third-party config
+when possible. If this edits third-party config, describe how Clean Up Hooks
+removes only StayUp-owned entries and leaves apps, model files, projects, logs,
+and unrelated config alone.

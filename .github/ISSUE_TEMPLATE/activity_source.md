@@ -31,7 +31,8 @@ paste active commands / paths / observations here
 ```
 
 **Stop proof**
-<!-- After the job stops, what happens right away? What happens after 10-60 seconds? -->
+<!-- After the job stops, what happens right away? What happens after about 10 seconds?
+     If it still looks active, what happens after 1-3 minutes? -->
 
 ```text
 paste stop observations here
@@ -58,5 +59,6 @@ paste stop observations here
 ```
 
 **Cleanup behavior**
-<!-- If this edits any third-party config, how does StayUp remove only its own entries? -->
-
+<!-- Normal Delete should safe-disable the source without editing third-party config when possible.
+     If this edits third-party config, how does Clean Up Hooks remove only StayUp-owned entries?
+     Do not delete apps, model files, projects, logs, or unrelated config. -->
