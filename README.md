@@ -12,7 +12,7 @@
 Free Apple Silicon Mac menu-bar Duck that keeps local work alive when macOS
 really wants a nap. No account. No telemetry. No weird cloud leash.
 
-Close the lid. LLM still running. Render still rendering. Download still
+Close the lid. AI agent still working. Render still rendering. Download still
 downloading. Good Duck.
 
 <p align="center">
