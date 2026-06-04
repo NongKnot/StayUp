@@ -8,75 +8,42 @@
 [![Architecture: Apple Silicon](https://img.shields.io/badge/arch-Apple%20Silicon-black.svg)](https://en.wikipedia.org/wiki/Apple_silicon)
 [![Built with Swift](https://img.shields.io/badge/Swift-5%2B-orange.svg?logo=swift&logoColor=white)](https://swift.org)
 
-Free Apple Silicon Mac menu-bar Duck that keeps your Mac awake when macOS
+Free Apple Silicon Mac menu-bar Duck that keeps local work alive when macOS
 really wants a nap.
 
 Close the lid. LLM still running. Render still rendering. Download still
-downloading. Tiny server still doing tiny server things.
-
-Duck up.
-
-Set up the Helper. That is not a side quest. That is the point.
+downloading. Duck up.
 
 <p align="center">
   <img src="./assets/readme-walk.gif" alt="The StayUp Duck walking" width="200">
 </p>
 
-## Duck Origin
+## What The Duck Does
 
-Vienna layover. Hotel room. Danube outside the window.
-
-Ducks on the water, doing Duck things.
-
-The captain calls. "Come hang out."
-
-The local LLM is still running. The render is not done. The download is being
-dramatic.
-
-Close the lid. Walk out.
-
-Duck.
-
-LLM died. Render gone. Hours of work, face down in the river.
-
-Looked at the Danube. Looked at the ducks.
-
-That is the night Duck rose. Up and all night, baby.
-
-<p align="center">
-  <img src="./assets/duck-idle.png" alt="StayUp Duck" width="90">
-</p>
-
-## What The Duck Does It Do
-
-- **Off / On / Auto.** Off: sleep, fine. On: Duck up now. Auto: Duck up while
-  selected Activity Sources prove local work.
-- **Lid-closed work.** Battery plus lid closed is the hard case. Helper handles it.
-- **MacBook as Mac mini.** Dock it, close it, run Ollama, a worker, a tiny server,
-  or the overnight thing that should not die.
-- **Screen lock, your call.** Screen can stay awake. Screen can sleep. System
-  stays awake for background work.
-- **Don't Die.** Cuts Duck off before the Mac faceplants. BJ help.
+- **Off / On / Auto.** Manual sleep control, or Auto mode that protects only
+  while trusted local Activity Sources prove real work.
+- **Lid-closed work.** Battery plus lid closed is the hard case. The Helper is
+  how Duck handles it.
+- **MacBook as Mac mini.** Dock it, close it, run Ollama, a worker, a tiny
+  server, or the overnight thing that should not die.
+- **Don't Die.** Duck cuts itself off before the Mac faceplants. BJ help.
   Bryan Johnson obviously.
-- **Walking Duck.** Macs with an Apple SPU accelerometer get a tiny judgemental
-  walk cycle.
-- **Good Duck.** No telemetry. No accounts. Just a Duck.
+- **Good Duck.** No telemetry. No accounts. Local-first.
 
 ## Getting A Duck
 
 ### Normies Way
 
-Download the DMG from [getstayup.app](https://getstayup.app). Drag StayUp to
-Applications. Open Duck.
+Download StayUp from [getstayup.app](https://getstayup.app).
 
-During first setup, do the prompts. Duck knows. Annoying, yes. Important, yes.
+First setup has a few macOS prompts:
 
-- **Welcome window:** Launch at Login, Helper setup, and update preference.
+- **Welcome window:** Launch at Login, Helper setup, update preference.
 - **Helper setup:** macOS approval plus one password prompt. This is the
-  lid-closed-on-battery part. Without it, hard case not covered.
-- **Sparkle update prompt:** optional. It may appear on a later launch unless
-  you already chose in Welcome or Settings. If enabled, Sparkle checks
-  `getstayup.app/appcast.xml` for signed updates.
+  lid-closed-on-battery part.
+- **Sparkle updates:** optional signed updates from `getstayup.app/appcast.xml`.
+
+No Helper, no hard-case promise. Duck is bold, not fake.
 
 ### Respectable Way
 
@@ -84,6 +51,7 @@ StayUp is a small AppKit app built with `swiftc`. No Xcode project. No SPM.
 Sparkle is vendored so a fresh clone can build without dependency setup.
 
 ```bash
+git clone https://github.com/NongKnot/StayUp.git
 cd StayUp
 bash build.sh
 
@@ -97,142 +65,39 @@ For the real StayUp setup:
 StayUp menu -> Settings -> Helper -> Set up
 ```
 
-No Helper, no hard-case promise. Duck is bold, not fake.
-
 For a notarized local build:
 
 ```bash
 bash build.sh notarize
 ```
 
-That needs a Developer ID certificate and a configured `notarytool` keychain profile.
+That needs a Developer ID certificate and a configured `notarytool` keychain
+profile.
 
 ## Auto Mode
 
-Auto mode is Duck with timing. Work starts, Duck up. Work stops, grace timer,
+Auto mode is Duck with timing: work starts, Duck up; work stops, grace timer,
 Duck down.
 
-StayUp watches:
+Supported starter sources include Claude Code CLI, Codex CLI, LM Studio, and
+Ollama. Sources are local and opt-in. Cloud/web work somewhere else does not
+keep this Mac awake unless a local thing writes a heartbeat.
 
-```text
-~/.stayup/
-├── sources/
-│   ├── reported-cli/
-│   │   ├── source.json
-│   │   └── active/
-│   ├── local-runner/
-│   │   ├── source.json
-│   │   └── active/
-│   └── ollama/
-│       ├── source.json
-│       └── active/
-└── status.json
-```
+Docs:
 
-Reported CLIs write direct heartbeat files under their own
-`sources/<tool>/active/` folders. Other local tools can be observed by adding an
-`sources/<tool>/source.json`, or by writing the same heartbeat contract directly.
-
-The rule is simple: local work must prove it is working. Thinking, running shell
-commands, searching files, building, testing, generating, downloading. Real work
-gets `active`. Fake work gets nothing.
-
-The contract is documented in [docs/activity-source-contract.md](./docs/activity-source-contract.md).
-Activity Source examples and a copy prompt are in
-[docs/activity-sources.md](./docs/activity-sources.md).
-Want Duck to learn another tool? Open an
-[Activity Source proposal](./.github/ISSUE_TEMPLATE/activity_source.md) or add a
-recipe under [docs/activity-source-recipes](./docs/activity-source-recipes/).
-
-Important limits:
-
-- Cloud/web work runs somewhere else. It does not keep this Mac awake unless a
-  local thing writes a heartbeat.
-- Waiting on a human does not keep the Mac awake forever. Grace timer, Duck down.
-- Manual mode and Off commands win. Auto only drives while Auto is selected.
-
-## How It Works
-
-In default keep-screen-on mode, StayUp can use these layers:
-
-| # | Layer | Trick | File |
-|---|---|---|---|
-| 1 | `Caffeinate` | `caffeinate -dis -w $PID`, or `-is` when the screen may sleep | `Sources/Caffeinate.swift` |
-| 2 | `SleepPreventer` | IOKit idle/system assertions, display assertion only when keeping the screen on, plus ProcessInfo activity | `Sources/SleepPreventer.swift` |
-| 3 | `ClosedLidPreventer` | IOKit system-sleep assertion | `Sources/ClosedLidPreventer.swift` |
-| 4 | `VirtualDisplay` | Private `CGVirtualDisplay` fake external display when keeping the screen on and no real external display is connected | `Sources/VirtualDisplay.swift` |
-| 5 | `StayUpHelper` | Root LaunchDaemon + `pmset disablesleep` | `Sources/StayUpHelper.swift` + `Helper/main.swift` |
-
-Battery plus lid closed on Apple Silicon depends on layer 5. The virtual display
-helps in other display/sleep paths. The Helper is the required layer for the
-hard case.
-
-If **Keep screen on** is off, display-sleep layers are intentionally skipped so
-macOS can lock or sleep the display while system-sleep protection stays active.
-
-Direct distribution only. The App Store sandbox is not the pond for this Duck:
-the private display API and the root helper are central to the app.
+- Activity Source contract: [docs/activity-source-contract.md](./docs/activity-source-contract.md)
+- Setup prompt and examples: [docs/activity-sources.md](./docs/activity-sources.md)
+- Contributor recipes: [docs/activity-source-recipes](./docs/activity-source-recipes/)
 
 ## Privacy
 
-No telemetry. No accounts. Just a Duck.
+No telemetry. No analytics. No crash reporting. No accounts.
 
-- No telemetry.
-- No analytics.
-- No crash reporting.
-- No accounts.
-- Sparkle update checks happen only if enabled or manually requested.
-- Feed Duck opens `getstayup.app/tip` in the browser when clicked.
-- Accelerometer samples stay local, run only while engaged, and are discarded.
-- Auto mode reads local Activity Source receipts and optional local session
-  details for the menu. Those Auto-mode reads do not leave the Mac.
+StayUp reads local Activity Source receipts, optional local session details for
+the menu, and accelerometer samples only while engaged. Sparkle checks for
+updates only if enabled or manually requested.
 
 Security notes live in [SECURITY.md](./SECURITY.md).
-
-## Resource Use
-
-Approximate local measurements for the current v1.0 build. Tiny CPU. Normal
-Cocoa menu-bar RAM tax.
-
-| State | CPU | RAM |
-|---|---:|---:|
-| Idle | ~0.1% | ~37 MB |
-| Protecting | ~0.1% | ~37 MB |
-| Walking | 1-3% bursts | ~37 MB |
-
-Duck is not the hot part of the laptop.
-
-Most always-on menu-bar apps poll forever. Duck tries not to be that guy.
-Accelerometer reads only run while engaged. Battery polling is engage-gated.
-Don't Die idles until Duck is actually protecting something.
-
-| Disk footprint | Size |
-|---|---:|
-| App bundle | ~3.8 MB |
-| Sparkle.framework | ~3.0 MB |
-| StayUp binary | ~600 KB |
-| Notarized DMG | ~1.5 MB |
-
-## Why Not Just Use Amphetamine?
-
-Good question. Respect where respect is due:
-[Amphetamine](https://apps.apple.com/app/amphetamine/id937984704) is the
-classic free Mac awake app by William C. Gustafson, and it has helped a lot of
-people for a long time.
-
-StayUp exists for a narrower hard case: Apple Silicon, battery power, lid
-closed, local work still running.
-
-Amphetamine plus Power Protect can cover related workflows by keeping the
-internal display path alive. Duck goes the other way: StayUp can create a
-virtual external display and, with the Helper enabled, ask the system daemon to
-disable sleep for the hard battery-plus-lid case.
-
-Both are valid ponds. Duck built this one because Duck needed this one.
-
-<p align="center">
-  <img src="./assets/duck-side-eye.png" alt="StayUp Duck side eye" width="90">
-</p>
 
 ## Uninstall
 
@@ -242,7 +107,7 @@ Polite path. Good Duck:
 2. Quit StayUp.
 3. Drag `/Applications/StayUp.app` to the Trash.
 
-Fast path. Still works:
+Fast path:
 
 ```bash
 pkill -x StayUp
@@ -267,12 +132,10 @@ System Settings -> General -> Login Items & Extensions
 
 ## Contributors
 
-- <img src="./assets/codex-mark.svg" alt="" width="18"> Codex — coding
-  collaborator for the public repo cleanup, release docs, and Activity Source
-  contributor flow.
-- Claude Code — early coding collaborator for the original StayUp build and
+- <img src="./assets/codex-mark.svg" alt="" width="18"> Codex - coding
+  collaborator for public repo cleanup, release docs, and launch polish.
+- Claude Code - early coding collaborator for the original StayUp build and
   Auto mode exploration.
-- Repo social preview image: [assets/repo-social-preview.png](./assets/repo-social-preview.png).
 
 See [AUTHORS.md](./AUTHORS.md) for the public credit roll.
 
@@ -280,17 +143,8 @@ See [AUTHORS.md](./AUTHORS.md) for the public credit roll.
 
 Issues and PRs welcome. No telemetry, no accounts, no Duck impersonation.
 
-For Auto mode sources, start with proof:
-
-- exact local surface, not just a brand
-- idle proof
-- active proof
-- stop proof
-- false positives and false negatives
-
-Use the [Activity Source proposal](./.github/ISSUE_TEMPLATE/activity_source.md)
-or the [recipe template](./docs/activity-source-recipes/_template.md). Good
-recipes may graduate into the app's prefilled source list after real testing.
+For Auto mode sources, start with proof: exact local surface, idle proof,
+active proof, stop proof, false positives, and false negatives.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full Duck manners.
 
@@ -300,7 +154,3 @@ his pond.
 ## License
 
 MIT. See [LICENSE](./LICENSE).
-
-<p align="center">
-  <sub>Duck stays up so you do not have to.</sub>
-</p>
