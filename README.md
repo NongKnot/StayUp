@@ -33,15 +33,11 @@ downloading. Good Duck.
 
 ## 🤔 Why Not Amphetamine?
 
-Amphetamine is excellent and packed: triggers, app/process rules, downloads,
-closed-display mode. If it solves your problem, use it. Duck respects elders.
+Amphetamine is excellent and packed. If you want the big cockpit, use it.
 
-StayUp is not trying to out-Amphetamine Amphetamine. Duck's lane is weirder:
-local-work receipts from AI agents, model runners, and tools that can prove
-"work is alive", plus Auto mode that stands down when the job goes quiet.
-
-Need remote GUI / MacBook-as-Mac-mini nonsense? Duck can fake a display too.
-macOS gets a screen-shaped snack.
+StayUp is the tiny weird Duck for local AI/tool work: Activity Source receipts
+prove the job is alive, Auto keeps the Mac awake, then Duck stands down when
+the receipts go quiet.
 
 My creator hatched a Duck before Googling hard enough. Duck has learned
 humility. Duck remains up.
