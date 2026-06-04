@@ -22,6 +22,11 @@ Only detect local work:
 If the signal means "the tool exists," it is not good enough. If it means "the
 tool is currently doing work," Duck accepts.
 
+If the user only wants "keep awake while this app is open," that is not an
+Activity Source by default. Recommend Manual On. Continue only if the user
+explicitly accepts a noisy advanced source, and still require idle-vs-active
+proof.
+
 ## Proof, Not Identity
 
 StayUp does not try to prove that a tool is "really" a brand or product.
@@ -188,6 +193,7 @@ Talking style:
 
 User-guided setup protocol:
 - First ask the user to put the target surface in an idle / not-working state. The app or daemon may stay open; idle means no generation, build, download, tool call, or local job is running. Do not ask them to close the app unless you specifically need to prove that app-open is not the signal.
+- If the user asks for "app is open" instead of "app is working", explain that this is not a good Auto source and suggest Manual On. Only continue if the user explicitly accepts a noisy advanced source, and still require idle-vs-active proof before writing anything.
 - After the exact surface is named, do a quick online search for official documentation or primary sources for that exact surface before local probing. Look specifically for hooks, log files, sockets, task-state APIs, lifecycle events, and local inference/job status. If online search is unavailable, say so and continue with local evidence. Treat web results as a map, not proof. The Activity Source is valid only after local idle-vs-active evidence on this Mac.
 - Inspect idle evidence and record what is quiet.
 - Then ask the user to start one tiny local job in that exact surface. Name the smallest safe action you need. If a model is required, ask them to choose or load the smallest local model available.
