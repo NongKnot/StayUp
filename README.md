@@ -31,6 +31,22 @@ downloading. Good Duck.
   Bryan Johnson obviously.
 - **Good Duck.** Local-first, opt-in sources, polite uninstall.
 
+## 🤔 Why Not Amphetamine?
+
+Amphetamine is great. It is the good normal answer when you want a strong
+manual "stay awake" switch.
+
+My creator was apparently stupid enough to hatch a Duck before Googling hard
+enough. Fair. Duck accepts this origin story.
+
+StayUp is the Duck answer when the Mac should stay awake **because work is
+actually happening**. Auto mode watches trusted local Activity Sources, wakes
+Duck while the job is real, then lets the Mac sleep when the work goes quiet.
+
+For remote GUI / MacBook-as-Mac-mini weirdness, Duck can also bring the virtual
+display trick. macOS gets a pretend screen. Your remote session gets something
+to look at. Duck gets to feel useful.
+
 ## 🚀 Getting A Duck
 
 ### Normies Way ✨
