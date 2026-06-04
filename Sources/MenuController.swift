@@ -447,7 +447,7 @@ class MenuController: NSObject, NSMenuDelegate {
     }
 
     /// Start Activity Source detection — only run in Auto mode. Idempotent.
-    /// Off/On do zero filesystem polling / hook watching, so the LLM monitor
+    /// Off/On do zero filesystem polling / hook watching, so the source monitor
     /// costs nothing when you're not using Auto.
     private func startSourceDetection() {
         guard !sourceDetectionOn else { return }
