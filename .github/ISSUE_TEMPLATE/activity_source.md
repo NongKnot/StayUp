@@ -15,8 +15,8 @@ assignees: ''
 
 **Why this is real local work**
 <!-- What is the tool doing on this Mac when the source should be active? -->
-<!-- App-open alone is not a good Auto source. If the request is only "keep awake while this app is open",
-     recommend Manual On unless the user explicitly accepts a noisy advanced source. -->
+<!-- If the request is only "keep awake while this app is open", call it a presence source.
+     Prove open-vs-closed and make the noisier behavior clear. -->
 
 **Idle proof**
 <!-- With the app/tool open but not working, what did you check? What stayed quiet? -->
@@ -41,7 +41,8 @@ paste stop observations here
 ```
 
 **False positives**
-<!-- What could make Duck think work is happening when it is not? Example: app is open, model loaded, server idle. -->
+<!-- What could make Duck think work is happening when it is not? Example: model loaded, server idle.
+     For presence sources, note that "app is open" is intentional. -->
 
 **False negatives**
 <!-- What real work might this source miss? -->

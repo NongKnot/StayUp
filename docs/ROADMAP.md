@@ -42,9 +42,10 @@ Nothing is trusted until the user ticks it in Settings.
 - No cost, quota, token, billing, or usage dashboard.
 - No hidden edits to third-party configs. StayUp edits reported-source hook
   config only for known supported integrations, and cleanup must be explicit.
-- No "app is open" or "model is loaded" signal. A local model server sitting in
-  RAM/VRAM is idle unless it is generating, embedding, downloading, or running a
-  real local job.
+- No bundled/default "app is open" or "model is loaded" signal. A local model
+  server sitting in RAM/VRAM is idle unless it is generating, embedding,
+  downloading, or running a real local job. Custom app-open presence sources are
+  allowed when the user explicitly wants that behavior.
 
 ## Research Backlog
 
