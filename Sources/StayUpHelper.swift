@@ -14,8 +14,10 @@ import ServiceManagement
 /// and ordering matters (an async enable followed by a sync disable could
 /// land in the wrong order, leaving `pmset disablesleep 1` set system-wide).
 ///
-/// We don't wait for the daemon's "ok\n" reply. The daemon ignores SIGPIPE
-/// so our immediate close() is harmless to it.
+/// Normal engage/disengage calls don't wait for the daemon's "ok\n" reply.
+/// The daemon ignores SIGPIPE so our immediate close() is harmless to it.
+/// Uninstall is different: it waits for "ok\n" so we know
+/// `pmset disablesleep 0` finished before unregistering the daemon.
 final class StayUpHelper {
     static let shared = StayUpHelper()
 
@@ -64,13 +66,21 @@ final class StayUpHelper {
 
     func disable() { _ = sendCommand("disable") }
 
+    /// Used before unregistering the daemon. The helper replies only after
+    /// `pmset disablesleep 0` exits, so a true return means it is safe to
+    /// unregister without leaving the system-wide disablesleep flag stuck on.
+    @discardableResult
+    func disableAndWait() -> Bool {
+        sendCommand("disable", waitForReply: true)
+    }
+
     /// Opens the helper socket, sends `command\n`, and reports whether
     /// the connect+send succeeded. Returns `false` if the daemon is
     /// unreachable (which is the signal `enable()` uses to attempt
     /// auto-heal). Disable failures are non-fatal so we ignore the
     /// boolean there.
     @discardableResult
-    private func sendCommand(_ command: String) -> Bool {
+    private func sendCommand(_ command: String, waitForReply: Bool = false) -> Bool {
         guard isEnabled else { return false }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { logFailure("\(command): socket()", errno); return false }
@@ -93,9 +103,24 @@ final class StayUpHelper {
         }
         guard rc == 0 else { logFailure("\(command): connect()", errno); return false }
 
+        if waitForReply {
+            var timeout = timeval(tv_sec: 5, tv_usec: 0)
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                       socklen_t(MemoryLayout<timeval>.size))
+        }
+
         let msg = command + "\n"
         let n = msg.withCString { Foundation.send(fd, $0, strlen($0), 0) }
         if n < 0 { logFailure("\(command): send()", errno); return false }
+
+        if waitForReply {
+            var buf = [UInt8](repeating: 0, count: 16)
+            let r = recv(fd, &buf, buf.count, 0)
+            guard r > 0 else { logFailure("\(command): recv()", errno); return false }
+            let reply = String(bytes: buf.prefix(Int(r)), encoding: .utf8) ?? ""
+            return reply.trimmingCharacters(in: .whitespacesAndNewlines) == "ok"
+        }
+
         return true
     }
 
