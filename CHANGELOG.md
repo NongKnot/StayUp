@@ -62,6 +62,10 @@ land below it.
   Activity Sources list with right-aligned actions, no technical source badges,
   no horizontal scroll, one-click Delete from the list, and Restore Defaults
   for the bundled starter sources.
+- **Guided Add Source flow.** Activity Sources now start from Add Source, which
+  explains the setup steps before copying the prompt. The setup prompt supports
+  both precise real-work sources and explicit app-open presence sources such as
+  "keep awake while Xcode is open."
 - **Auto mode Activity Sources.** Bundled starter sources cover Claude Code
   CLI, Codex CLI, LM Studio, and Ollama. Sources are local, opt-in, and must
   prove active work instead of merely proving that an app is open.

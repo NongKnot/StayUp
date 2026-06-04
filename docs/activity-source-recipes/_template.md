@@ -22,8 +22,9 @@ Pick one:
 ## Idle Proof
 
 Describe the state with the tool open but not working.
-App-open alone is not a good Auto source; recommend Manual On unless the user
-explicitly accepts a noisy advanced source.
+App-open alone is a presence source, not a real-work source. It is valid when
+the user explicitly wants "keep awake while this app is open"; prove
+open-vs-closed and make the behavior clear.
 
 ```text
 commands, paths, or observations

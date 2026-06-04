@@ -16,16 +16,15 @@ Only detect local work:
 
 - Good: shell commands, builds, tests, file searches, local model inference,
   local workers, local logs/databases that update while work runs.
-- Bad: cloud/web work, idle apps, idle servers, browser tabs, generic app
-  launches.
+- Bad by default: cloud/web work, idle apps, idle servers, browser tabs,
+  generic app launches.
 
-If the signal means "the tool exists," it is not good enough. If it means "the
-tool is currently doing work," Duck accepts.
+If the signal means "the tool is currently doing work," Duck accepts.
 
-If the user only wants "keep awake while this app is open," that is not an
-Activity Source by default. Recommend Manual On. Continue only if the user
-explicitly accepts a noisy advanced source, and still require idle-vs-active
-proof.
+If the user only wants "keep awake while this app is open," treat that as an
+explicit app-open / presence source. It is less precise than real-work
+detection, but it is valid when the user asks for it. Prove open-vs-closed and
+make the behavior clear.
 
 ## Proof, Not Identity
 
@@ -180,7 +179,7 @@ Use this with a local tool or app surface:
 ````text
 You are setting up one StayUp Activity Source for one local tool or app surface on this Mac.
 
-StayUp is simple: Manual On/Off is direct user control. Auto protects the Mac only while a selected local Activity Source is actively working, then turns off after StayUp's grace period. Your job is to find one trustworthy local proof of "working now."
+StayUp is simple: Manual On/Off is direct user control. Auto protects the Mac while a selected local Activity Source is true, then turns off after StayUp's grace period. Best sources prove "working now." If the user explicitly wants "keep awake while this app is open," that is also allowed as a deliberate presence source.
 
 Target one exact surface: CLI, desktop app, IDE extension, browser automation surface, local model runner, daemon, or other. Do not treat a brand as one source; different surfaces from the same product can expose different local signals.
 
@@ -192,8 +191,9 @@ Talking style:
 - Developer mode: include commands, paths, config details, and tradeoffs.
 
 User-guided setup protocol:
-- First ask the user to put the target surface in an idle / not-working state. The app or daemon may stay open; idle means no generation, build, download, tool call, or local job is running. Do not ask them to close the app unless you specifically need to prove that app-open is not the signal.
-- If the user asks for "app is open" instead of "app is working", explain that this is not a good Auto source and suggest Manual On. Only continue if the user explicitly accepts a noisy advanced source, and still require idle-vs-active proof before writing anything.
+- First clarify the user's intent: should Duck stay up only during real work, or whenever the app/tool is open? If they ask for app-open behavior, accept that choice and call it a presence source.
+- For real-work sources, ask the user to put the target surface in an idle / not-working state. The app or daemon may stay open; idle means no generation, build, download, tool call, or local job is running.
+- For app-open presence sources, prove open-vs-closed instead of idle-vs-active. Ask the user to open the exact app/tool, verify the local process/surface exists, then ask them to quit it and verify the signal goes quiet. Do not run a tiny job unless the user wants real-work detection.
 - After the exact surface is named, do a quick online search for official documentation or primary sources for that exact surface before local probing. Look specifically for hooks, log files, sockets, task-state APIs, lifecycle events, and local inference/job status. If online search is unavailable, say so and continue with local evidence. Treat web results as a map, not proof. The Activity Source is valid only after local idle-vs-active evidence on this Mac.
 - Inspect idle evidence and record what is quiet.
 - Then ask the user to start one tiny local job in that exact surface. Name the smallest safe action you need. If a model is required, ask them to choose or load the smallest local model available.
@@ -220,24 +220,26 @@ Good signals mean active local work:
 - logPattern with clear active and idle/done markers
 - ESTABLISHED socket that appears during work and is absent while idle
 - CPU only when it clearly separates active work from idle
+- process exists with minCpu 0 only when the user explicitly asked for app-open / presence behavior
 
 Bad signals:
-- app is installed, open, authenticated, or configured
+- app is installed, authenticated, or configured
 - local LLM model is loaded in RAM, VRAM, memory, or ready state
-- generic process exists
+- generic process exists, unless the user explicitly asked for app-open / presence behavior
 - browser tab or chat text exists
 - cloud/web-only work with no local receipt
 
 Local LLM rule: loaded model, server alive, or model ready is idle unless tokens are being generated, embeddings are running, a download is active, or another local inference/job is actually working.
 
 Workflow:
-1. If the exact surface is unclear, ask which local app or tool to connect.
-2. Inspect idle state first.
-3. Inspect active state from a tiny local job; ask the user before running anything expensive, killing processes, installing software, or editing config.
-4. Prefer reported heartbeat if the tool has hooks/events for turn start, active work, waiting/idle, or stop. Install that mapping in the tool's own hook/config file, not in ~/.stayup/sources by hand.
-5. Use tool-begin/tool-end only when those hooks are reliable paired lifecycle events. If the tool can only prove "work happened recently", map those hooks to active instead of exposing a fake in-flight tool count.
-6. Otherwise choose the smallest observed signal that is quiet when idle and active during work.
-7. If the evidence is weak, return needs_user_test or no_source. Do not guess.
+1. If the exact surface is unclear, ask which local app or tool to connect and whether Duck should watch real work or app-open presence.
+2. For real-work sources, inspect idle state first.
+3. For app-open presence sources, inspect closed/absent state and open/present state. A process source with minCpu 0 is acceptable if it cleanly tracks the requested app/tool.
+4. For real-work sources, inspect active state from a tiny local job; ask the user before running anything expensive, killing processes, installing software, or editing config.
+5. Prefer reported heartbeat if the tool has hooks/events for turn start, active work, waiting/idle, or stop. Install that mapping in the tool's own hook/config file, not in ~/.stayup/sources by hand.
+6. Use tool-begin/tool-end only when those hooks are reliable paired lifecycle events. If the tool can only prove "work happened recently", map those hooks to active instead of exposing a fake in-flight tool count.
+7. Otherwise choose the smallest observed signal that matches the user's intent.
+8. If the evidence is weak, return needs_user_test or no_source. Do not guess.
 
 If you are asked to install a ready source, do not edit StayUp app code. For reported, install hooks in the target tool's own hook/config file so each event calls the source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh. For file, logPattern, socket, or process, create exactly one source.json under ~/.stayup/sources/<source-slug>/source.json.
 
