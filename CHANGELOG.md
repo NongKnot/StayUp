@@ -58,13 +58,18 @@ land below it.
   Walk mode. Don't Die uses a 5%/10%/20% dropdown; the Duck skin picker
   shows a colored swatch next to each option (Mono renders as a
   light/dark split to indicate "adapts to menu bar").
+- **Cleaner Settings layout.** Shorter copy, wider spacing, and a cleaner
+  Activity Sources list with right-aligned actions, no technical source badges,
+  no horizontal scroll, one-click Delete from the list, and Restore Defaults
+  for the bundled starter sources.
 - **Auto mode Activity Sources.** Bundled starter sources cover Claude Code
   CLI, Codex CLI, LM Studio, and Ollama. Sources are local, opt-in, and must
   prove active work instead of merely proving that an app is open.
 - **Safe Activity Source setup and cleanup.** The copied setup prompt asks the
   agent to test idle, active, and stopped states before writing anything.
-  Normal Delete safe-disables a reported source with a no-op wrapper; Clean Up
-  Hooks removes only StayUp-owned hook entries.
+  Delete removes the source from StayUp's list. Reported sources leave a safe
+  no-op wrapper unless the user explicitly chooses hook cleanup; cleanup removes
+  only StayUp-owned hook entries.
 - **Launch at Login** registers via `SMAppService.mainApp`, so the
   entry shows up in System Settings → Login Items & Extensions →
   "Open at Login" labeled "StayUp" with the app icon. Earlier
@@ -73,9 +78,9 @@ land below it.
   `MenuController` claims those installs onto the modern API
   transparently.
 - **Helper Uninstall** lives in Settings → General. Sends `disable`
-  to the daemon first (so `pmset disablesleep 0` runs cleanly),
-  waits for the drain, then unregisters the `SMAppService.daemon`
-  entry. A confirmation alert spells out that Duck loses its
+  to the daemon first and waits for the daemon's confirmation that
+  `pmset disablesleep 0` finished before unregistering the
+  `SMAppService.daemon` entry. A confirmation alert spells out that Duck loses its
   lid-closed-on-battery powers until you set it up again.
 - **Defensive `pmset disablesleep 0`** on every helper daemon launch.
   Self-heals any stuck system-wide sleep-prevention state from a
