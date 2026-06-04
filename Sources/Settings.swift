@@ -126,11 +126,12 @@ enum Settings {
     }
 
     /// Keep the *screen* awake too, not just the system. Default ON (the v1
-    /// behavior: virtual display + display-sleep assertion, so the Mac never
-    /// shows its lock screen while engaged). Turn OFF for a security-friendlier
-    /// mode: the system stays awake for background work, but the display is
-    /// allowed to sleep so macOS can lock and show the login screen. Gates
-    /// `VirtualDisplay` + the display-sleep layers in `MenuController.engage()`.
+    /// behavior: display-sleep assertion + optional virtual display, so remote
+    /// GUI tools have a screen-shaped target while engaged). Turn OFF for a
+    /// security-friendlier mode: the system stays awake for background work,
+    /// but the display is allowed to sleep so macOS can lock and show the login
+    /// screen. Gates `VirtualDisplay` + the display-sleep layers in
+    /// `MenuController.engage()`.
     static var virtualDisplayEnabled: Bool {
         get { d.object(forKey: "stayup.virtualDisplayEnabled") as? Bool ?? true }
         set { d.set(newValue, forKey: "stayup.virtualDisplayEnabled") }
