@@ -37,7 +37,9 @@ Set up the Helper. That is not a side quest. That is the point.
   walk cycle.
 - **Good Duck.** No telemetry. No accounts. Just a Duck.
 
-## Normies Way
+## Getting A Duck
+
+### Normies Way
 
 Download the DMG from [getstayup.app](https://getstayup.app). Drag StayUp to
 Applications. Open Duck.
@@ -51,7 +53,7 @@ During first setup, do the prompts. Duck knows. Annoying, yes. Important, yes.
   you already chose in Welcome or Settings. If enabled, Sparkle checks
   `getstayup.app/appcast.xml` for signed updates.
 
-## Respectable Way
+### Respectable Way
 
 StayUp is a small AppKit app built with `swiftc`. No Xcode project. No SPM.
 Sparkle is vendored so a fresh clone can build without dependency setup.
@@ -113,6 +115,9 @@ gets `active`. Fake work gets nothing.
 The contract is documented in [docs/activity-source-contract.md](./docs/activity-source-contract.md).
 Activity Source examples and a copy prompt are in
 [docs/activity-sources.md](./docs/activity-sources.md).
+Want Duck to learn another tool? Open an
+[Activity Source proposal](./.github/ISSUE_TEMPLATE/activity_source.md) or add a
+recipe under [docs/activity-source-recipes](./docs/activity-source-recipes/).
 
 Important limits:
 
@@ -206,6 +211,20 @@ System Settings -> General -> Login Items & Extensions
 ## Contributing
 
 Issues and PRs welcome. No telemetry, no accounts, no Duck impersonation.
+
+For Auto mode sources, start with proof:
+
+- exact local surface, not just a brand
+- idle proof
+- active proof
+- stop proof
+- false positives and false negatives
+
+Use the [Activity Source proposal](./.github/ISSUE_TEMPLATE/activity_source.md)
+or the [recipe template](./docs/activity-source-recipes/_template.md). Good
+recipes may graduate into the app's prefilled source list after real testing.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full Duck manners.
 
 The code is MIT. Forks should use their own name and artwork so this Duck keeps
 his pond.
