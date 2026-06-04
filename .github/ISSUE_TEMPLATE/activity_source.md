@@ -15,6 +15,8 @@ assignees: ''
 
 **Why this is real local work**
 <!-- What is the tool doing on this Mac when the source should be active? -->
+<!-- App-open alone is not a good Auto source. If the request is only "keep awake while this app is open",
+     recommend Manual On unless the user explicitly accepts a noisy advanced source. -->
 
 **Idle proof**
 <!-- With the app/tool open but not working, what did you check? What stayed quiet? -->

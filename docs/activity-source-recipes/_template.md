@@ -22,6 +22,8 @@ Pick one:
 ## Idle Proof
 
 Describe the state with the tool open but not working.
+App-open alone is not a good Auto source; recommend Manual On unless the user
+explicitly accepts a noisy advanced source.
 
 ```text
 commands, paths, or observations
