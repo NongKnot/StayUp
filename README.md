@@ -118,12 +118,6 @@ Supported starter sources include Claude Code CLI, Codex CLI, LM Studio, and
 Ollama. Sources are local and opt-in. Cloud/web work somewhere else does not
 keep this Mac awake unless a local thing writes a heartbeat.
 
-Docs:
-
-- Activity Source contract: [docs/activity-source-contract.md](./docs/activity-source-contract.md)
-- Setup prompt and examples: [docs/activity-sources.md](./docs/activity-sources.md)
-- Contributor recipes: [docs/activity-source-recipes](./docs/activity-source-recipes/)
-
 ## 🔒 Privacy
 
 No telemetry. No analytics. No crash reporting. No accounts.
@@ -164,24 +158,6 @@ System Settings -> General -> Login Items & Extensions
 - [OxWearables stepcount](https://github.com/OxWearables/stepcount)
 - [Sparkle](https://sparkle-project.org/) for signed updates
 - `/usr/bin/caffeinate`, Apple's built-in sleep-prevention tool
-
-## 🤝 Contributors
-
-- <img src="./assets/codex-mark.svg" alt="" width="18"> Codex - coding
-  collaborator for public repo cleanup, release docs, and Duck polish.
-- Claude Code - early coding collaborator for the original StayUp build and
-  Auto mode exploration.
-
-See [AUTHORS.md](./AUTHORS.md) for the public credit roll.
-
-## 🌱 Contributing
-
-Issues and PRs welcome. Bring proof, keep it local, do not impersonate Duck.
-
-For Auto mode sources, start with proof: exact local surface, idle proof,
-active proof, stop proof, false positives, and false negatives.
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full Duck manners.
 
 The code is MIT. Forks should use their own name and artwork so this Duck keeps
 his pond.
