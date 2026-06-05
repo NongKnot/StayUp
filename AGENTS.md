@@ -65,6 +65,7 @@ Good public docs are welcome. Private operating notes are not.
 
 ## Brand
 
-Read `BRAND.md` before changing public copy or official images.
+Duck is capital D. Keep public copy short, useful, and honest. Duck can be
+funny, but claims still need proof.
 
-Duck is capital D. Duck can be funny, but claims still need proof.
+Do not commit unpublished notes or strategy docs.
