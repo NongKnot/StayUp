@@ -37,13 +37,10 @@ downloading. Good Duck.
 
 ## 🦆 What The Duck Does
 
-- **Off / On / Auto.** Click it, or let Auto wake only for trusted local work.
-- **Lid-closed work.** Battery + closed lid is the boss fight. Helper handles it.
-- **Mac(Book) Mini.** Dock it, close it, let the tiny desk Mac cook.
-- **Ducking Auto.** Activity Sources prove work. Duck wakes, waits, stands down.
-- **Don't Die.** Low battery? Duck cuts itself off before the Mac faceplants.
-- **Walking Duck.** Carry the Mac. Duck walks. Important science.
-- **Good Duck.** Local-first. Opt-in sources. Polite uninstall.
+- **Don't Let Work Die.** Close the lid. Duck keeps the Mac up.
+- **Ducking Auto.** Trusted local work starts. Duck wakes. Work stops. Duck naps.
+- **Walks With You.** Carry the Mac. Duck waddles. Important science.
+- **Don't Die.** Low battery? Duck taps out before the Mac faceplants.
 
 <p align="center">
   <img src="./assets/readme-walk.gif" alt="The StayUp Duck walking" width="160">
