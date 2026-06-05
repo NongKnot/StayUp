@@ -65,7 +65,7 @@ enum Settings {
     /// contract folders.
     /// Default OFF: it's opt-in. A source can only wake Auto after the user
     /// enables it in Settings, whether the signal comes from bundled CLI hooks
-    /// or an observed local clue (see docs/activity-source-contract.md).
+    /// or an observed local clue.
     static var autoSourceEnabled: Bool {
         get { d.object(forKey: "stayup.autoSourceEnabled") as? Bool ?? false }
         set { d.set(newValue, forKey: "stayup.autoSourceEnabled") }

@@ -656,8 +656,7 @@ class MenuController: NSObject, NSMenuDelegate {
     // MARK: - Auto mode (Activity Sources)
     //
     // When `Settings.autoSourceEnabled`, `ActivitySourceMonitor` drives engage/
-    // disengage off the `~/.stayup/sources/*/active` contract folders (see
-    // docs/activity-source-contract.md). The callback always runs; the policy
+    // disengage off the `~/.stayup/sources/*/active` contract folders. The callback always runs; the policy
     // below decides how the signal interacts with manual intent and Don't Die.
 
     private func handleActivitySourceChange(_ working: Bool) {

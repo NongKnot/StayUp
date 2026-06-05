@@ -3,7 +3,7 @@ import Foundation
 /// Installs / removes StayUp's bundled reported-source hooks in supported local
 /// tool configs and deploys the hook script to a stable location. This is the
 /// writer half of the Activity Source feature; see
-/// `docs/activity-source-contract.md` and `tools/stayup-source-hook.sh`.
+/// `tools/stayup-source-hook.sh`.
 ///
 /// Safety is the whole point — we're editing global tool config:
 ///   • **Merge, never clobber.** Existing hooks (and any other settings) are
