@@ -14,10 +14,10 @@ land below it.
 - **Five-layer sleep prevention stack.** `caffeinate` subprocess +
   IOKit idle/display/system-sleep assertions + `CGVirtualDisplay`
   private API + optional root LaunchDaemon (`pmset disablesleep`).
-- **Battery + closed-lid coverage.** The only consumer Mac sleep
-  blocker that handles this scenario today, via the virtual-display
-  trick + the helper daemon. Other apps fail because Apple Silicon
-  firmware overrides their IOKit assertions.
+- **Battery + closed-lid coverage.** A layered hard-case path for
+  Apple Silicon MacBooks on battery with the lid closed, using the
+  helper daemon for `pmset disablesleep` plus the rest of StayUp's
+  prevention stack. Normal IOKit assertions alone can lose this fight.
 - **Walking Duck mascot.** `WalkDetector` reads the M-series
   accelerometer (`AppleSPUHIDDevice`) at ~14 Hz and animates the
   menu-bar icon between two stride frames when sustained motion is

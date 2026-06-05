@@ -7,18 +7,15 @@ dist/
 # macOS Finder metadata.
 .DS_Store
 
-# Local Codex/Claude/project guidance and scratch state.
-# The public repo should be the app, not the workshop around the app.
+# Private Claude/local scratch state.
+# Public project guidance lives in AGENTS.md and BRAND.md.
 .claude/
 .mcp.json
-AGENTS.md
-BRAND.md
 CLAUDE.md
 CLAUDE.local.md
 
-# Private launch/marketing/site workspaces. getstayup.app is a separate
-# publishing surface; copy only final app-facing assets into assets/ or
-# Resources/ when they are needed by the app/release.
+# Local publishing workspaces. Copy only final app-facing assets into
+# assets/ or Resources/ when they are needed by the app/release.
 launch/
 site/
 image/
