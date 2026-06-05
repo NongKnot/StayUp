@@ -18,17 +18,17 @@ downloading. Good Duck.
 <table>
   <tr>
     <td width="33%" align="center">
-      <img src="./assets/use-case-walk.png" alt="Duck walking with a closed MacBook" width="100%">
+      <img src="./assets/use-case-walk.png" alt="Duck walking with a closed MacBook" width="180">
       <br>
       <sub>Close Lid. Walk.</sub>
     </td>
     <td width="33%" align="center">
-      <img src="./assets/use-case-desk.png" alt="Duck beside a docked MacBook" width="100%">
+      <img src="./assets/use-case-desk.png" alt="Duck beside a docked MacBook" width="180">
       <br>
       <sub>Mac(Book) Mini.</sub>
     </td>
     <td width="33%" align="center">
-      <img src="./assets/use-case-auto.png" alt="Duck watching local work run at night" width="100%">
+      <img src="./assets/use-case-auto.png" alt="Duck watching local work run at night" width="180">
       <br>
       <sub>Ducking Auto.</sub>
     </td>
