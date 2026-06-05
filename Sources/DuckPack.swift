@@ -43,8 +43,7 @@ struct DuckPack: Equatable {
     var isAvailableForUnlock: Bool = true
 
     /// The free, default pack — the four skins that shipped with v1.0.
-    /// Always implicitly unlocked. Never charge for these. Per BRAND.md:
-    /// "the engine stays free forever; cosmetics are paint, not features."
+    /// Always implicitly unlocked.
     static let starter = DuckPack(
         id: "starter",
         displayName: "Starter",
