@@ -18,17 +18,17 @@ downloading. Good Duck.
 <table>
   <tr>
     <td width="33%" align="center">
-      <img src="./assets/use-case-walk.png" alt="Duck walking with a closed MacBook" width="100%">
+      <img src="./assets/use-case-walk.png" alt="Duck walking with a closed MacBook" width="180">
       <br>
       <sub>Close Lid. Walk.</sub>
     </td>
     <td width="33%" align="center">
-      <img src="./assets/use-case-desk.png" alt="Duck beside a docked MacBook" width="100%">
+      <img src="./assets/use-case-desk.png" alt="Duck beside a docked MacBook" width="180">
       <br>
       <sub>Mac(Book) Mini.</sub>
     </td>
     <td width="33%" align="center">
-      <img src="./assets/use-case-auto.png" alt="Duck watching local work run at night" width="100%">
+      <img src="./assets/use-case-auto.png" alt="Duck watching local work run at night" width="180">
       <br>
       <sub>Ducking Auto.</sub>
     </td>
@@ -37,16 +37,10 @@ downloading. Good Duck.
 
 ## 🦆 What The Duck Does
 
-- **Off / On / Auto.** Manual sleep control, or Auto mode that protects only
-  while trusted local Activity Sources prove real work.
-- **Lid-closed work.** Battery plus lid closed is the boss fight. The Helper is
-  how Duck handles it.
-- **MacBook as Mac mini.** Dock it, close it, run Ollama, a worker, a tiny
-  server, or the overnight thing that should not die.
-- **Don't Die.** Duck cuts itself off before the Mac faceplants. BJ help.
-  Bryan Johnson obviously.
-- **Walking Duck.** Carry the Mac, Duck moves. Necessary? No. Correct? Yes.
-- **Good Duck.** Local-first, opt-in sources, polite uninstall.
+- **Don't Let Work Die.** Close the lid. Duck keeps the Mac up.
+- **Ducking Auto.** Trusted local work starts. Duck wakes. Work stops. Duck naps.
+- **Walks With You.** Carry the Mac. Duck waddles. Important science.
+- **Don't Die.** Low battery? Duck taps out before the Mac faceplants.
 
 <p align="center">
   <img src="./assets/readme-walk.gif" alt="The StayUp Duck walking" width="160">
