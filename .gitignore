@@ -12,10 +12,14 @@ dist/
 .cursor/
 .mcp.json
 AGENTS.md
+AUTHORS.md
+CHANGELOG.md
 CLAUDE.md
 CLAUDE.local.md
+CONTRIBUTING.md
 
 # Local publishing/workshop folders.
+.github/
 launch/
 site/
 image/
@@ -28,7 +32,29 @@ docs/
 stayup-source-flowchart*
 
 # Maintainer-only experiments and release smoke checks.
-.github/FUNDING.yml
+Vendor/SampleAppcast.xml
+Vendor/Sparkle-bin/
+assets/codex-mark.svg
+assets/dmg-bg.html
+assets/dmg-bg.png
+assets/duck-idle.png
+assets/duck-side-eye.png
+assets/duck-sleeping.png
+assets/duck-tween.gif
+assets/readme-ducks.html
+assets/readme-ducks.png
+assets/repo-social-preview.png
+tools/make-dmg-bg.sh
+tools/make-icon.sh
+tools/make-readme-art.sh
+tools/make-readme-gif.sh
+tools/make-readme-poses.sh
+tools/make-readme-tween.sh
+tools/preview-skin.swift
+tools/release.sh
+tools/svg-to-skin.swift
+tools/test-hook-installer.sh
+tools/test-source-hook.sh
 tools/bench-auto.sh
 tools/bench-mini.sh
 tools/test-update.sh
