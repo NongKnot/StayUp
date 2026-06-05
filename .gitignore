@@ -8,9 +8,10 @@ dist/
 .DS_Store
 
 # Private Claude/local scratch state.
-# Public project guidance lives in AGENTS.md and BRAND.md.
+# Public project guidance lives in AGENTS.md.
 .claude/
 .mcp.json
+BRAND.md
 CLAUDE.md
 CLAUDE.local.md
 
