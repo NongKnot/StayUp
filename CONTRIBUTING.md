@@ -49,7 +49,7 @@ Before opening a PR:
 - keep the change narrow
 - avoid unrelated cleanup
 - run the smallest useful test
-- do not include secrets, local paths, private launch notes, or generated build
+- do not include secrets, local paths, private operating notes, or generated build
   products
 - for Activity Sources, include idle / active / stop proof
 
@@ -65,4 +65,3 @@ bash tools/test-source-hook.sh
 
 Protect the user's trust. No hidden data use, no brittle magic, no surprising
 destructive actions.
-
