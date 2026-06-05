@@ -1,6 +1,5 @@
 #!/bin/sh
-# StayUp Activity Source hook (writer side of the v1 contract).
-# See docs/activity-source-contract.md.
+# StayUp Activity Source hook.
 #
 # Registered by ActivitySourceHookInstaller or by a compatible local tool config. The
 # tool pipes the hook event JSON on stdin.

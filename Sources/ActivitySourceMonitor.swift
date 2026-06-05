@@ -71,7 +71,7 @@ struct ActivitySourceSession {
 /// Watches the Activity Source contract directory and reports whether any
 /// selected local source is currently working.
 ///
-/// The contract (frozen in `docs/activity-source-contract.md`): one file per
+/// The receipt contract: one file per
 /// live source session under `~/.stayup/sources/<source>/active/`, first line is
 /// a state token (`active` / `waiting`), the file's mtime is a heartbeat, and
 /// the writer removes the file when the session ends. A session counts as *working* while
