@@ -15,9 +15,25 @@ really wants a nap. No account. No telemetry. No weird cloud leash.
 Close the lid. AI agent still working. Render still rendering. Download still
 downloading. Good Duck.
 
-<p align="center">
-  <img src="./assets/readme-walk.gif" alt="The StayUp Duck walking" width="200">
-</p>
+<table>
+  <tr>
+    <td width="33%" align="center">
+      <img src="./assets/use-case-walk.png" alt="Duck walking with a closed MacBook" width="100%">
+      <br>
+      <sub>Close Lid. Walk.</sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="./assets/use-case-desk.png" alt="Duck beside a docked MacBook" width="100%">
+      <br>
+      <sub>Mac(Book) Mini.</sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="./assets/use-case-auto.png" alt="Duck watching local work run at night" width="100%">
+      <br>
+      <sub>Ducking Auto.</sub>
+    </td>
+  </tr>
+</table>
 
 ## 🦆 What The Duck Does
 
@@ -29,7 +45,12 @@ downloading. Good Duck.
   server, or the overnight thing that should not die.
 - **Don't Die.** Duck cuts itself off before the Mac faceplants. BJ help.
   Bryan Johnson obviously.
+- **Walking Duck.** Carry the Mac, Duck moves. Necessary? No. Correct? Yes.
 - **Good Duck.** Local-first, opt-in sources, polite uninstall.
+
+<p align="center">
+  <img src="./assets/readme-walk.gif" alt="The StayUp Duck walking" width="160">
+</p>
 
 ## 🤔 Why Not Amphetamine?
 
@@ -153,7 +174,7 @@ System Settings -> General -> Login Items & Extensions
 ## 🤝 Contributors
 
 - <img src="./assets/codex-mark.svg" alt="" width="18"> Codex - coding
-  collaborator for public repo cleanup, release docs, and launch polish.
+  collaborator for public repo cleanup, release docs, and Duck polish.
 - Claude Code - early coding collaborator for the original StayUp build and
   Auto mode exploration.
 
