@@ -37,16 +37,13 @@ downloading. Good Duck.
 
 ## 🦆 What The Duck Does
 
-- **Off / On / Auto.** Manual sleep control, or Auto mode that protects only
-  while trusted local Activity Sources prove real work.
-- **Lid-closed work.** Battery plus lid closed is the boss fight. The Helper is
-  how Duck handles it.
-- **MacBook as Mac mini.** Dock it, close it, run Ollama, a worker, a tiny
-  server, or the overnight thing that should not die.
-- **Don't Die.** Duck cuts itself off before the Mac faceplants. BJ help.
-  Bryan Johnson obviously.
-- **Walking Duck.** Carry the Mac, Duck moves. Necessary? No. Correct? Yes.
-- **Good Duck.** Local-first, opt-in sources, polite uninstall.
+- **Off / On / Auto.** Click it, or let Auto wake only for trusted local work.
+- **Lid-closed work.** Battery + closed lid is the boss fight. Helper handles it.
+- **Mac(Book) Mini.** Dock it, close it, let the tiny desk Mac cook.
+- **Ducking Auto.** Activity Sources prove work. Duck wakes, waits, stands down.
+- **Don't Die.** Low battery? Duck cuts itself off before the Mac faceplants.
+- **Walking Duck.** Carry the Mac. Duck walks. Important science.
+- **Good Duck.** Local-first. Opt-in sources. Polite uninstall.
 
 <p align="center">
   <img src="./assets/readme-walk.gif" alt="The StayUp Duck walking" width="160">
