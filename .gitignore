@@ -7,23 +7,19 @@ dist/
 # macOS Finder metadata.
 .DS_Store
 
-# Private Claude/local scratch state.
-# Public project guidance lives in AGENTS.md.
+# Local assistant/editor scratch state.
 .claude/
+.cursor/
 .mcp.json
-BRAND.md
+AGENTS.md
 CLAUDE.md
 CLAUDE.local.md
 
-# Local publishing workspaces. Copy only final app-facing assets into
-# assets/ or Resources/ when they are needed by the app/release.
+# Local publishing/workshop folders.
 launch/
 site/
 image/
-docs/track-a-brief.md
-docs/HANDOFF.md
-docs/adr/
-.cursor/
+docs/
 *.local.md
 .env
 .env.*
@@ -31,8 +27,7 @@ docs/adr/
 # Local diagrams and analysis artifacts.
 stayup-source-flowchart*
 
-# Maintainer-only experiments / release smoke checks. These stay local;
-# the public source path is build.sh plus the minimal runtime resources.
+# Maintainer-only experiments and release smoke checks.
 .github/FUNDING.yml
 tools/bench-auto.sh
 tools/bench-mini.sh
@@ -40,8 +35,7 @@ tools/test-update.sh
 daemon/uninstall-legacy.sh
 tools/test-agent-hook.sh
 
-# Icon-generation intermediates — regenerable from tools/make-icon.sh.
-# Only the final Resources/AppIcon.icns is tracked.
+# Icon-generation intermediates. Only Resources/AppIcon.icns is tracked.
 Resources/icon-source.html
 Resources/AppIcon-1024.png
 Resources/AppIcon.iconset/
