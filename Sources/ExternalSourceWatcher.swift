@@ -741,6 +741,10 @@ Auto, and choose the After stop grace period.
                             sourceName: "Gemini",
                             type: "file",
                             path: "~/.gemini/tmp/*")
+        removeRetiredSource(folderSlug: "gemini-cli",
+                            sourceName: "Gemini",
+                            type: "file",
+                            path: "~/.gemini/tmp/*")
         removeRetiredSource(folderSlug: "app-workflow-source",
                             sourceName: "Cursor",
                             type: "file",
