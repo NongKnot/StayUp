@@ -9,11 +9,12 @@
 [![Built with Swift](https://img.shields.io/badge/Swift-5%2B-orange.svg?logo=swift&logoColor=white)](https://swift.org)
 [![Duck Mode](https://img.shields.io/badge/Duck%20mode-up-ff9b3d.svg)](https://getstayup.app)
 
-Free Apple Silicon Mac menu-bar Duck that keeps local work alive when macOS
-really wants a nap. No account. No telemetry. No weird cloud leash.
+Free Apple Silicon Mac menu-bar Duck that keeps local AI agents, renders, and
+downloads alive when macOS really wants a nap. No account. No telemetry. No
+weird cloud leash.
 
-Close the lid. AI agent still working. Render still rendering. Download still
-downloading. Good Duck.
+Close the lid. Local AI agents, model servers, renders, and downloads can keep
+working. Good Duck.
 
 <table>
   <tr>
@@ -50,12 +51,15 @@ downloading. Good Duck.
 
 Amphetamine is excellent and packed. If you want the big cockpit, use it.
 
-StayUp is the tiny weird Duck for local AI/tool work: Activity Source receipts
+StayUp is the tiny weird Duck for local AI/tool work. Activity Source receipts
 prove the job is alive, Auto keeps the Mac awake, then Duck stands down when
-the receipts go quiet.
+the receipts go quiet. It is built for the awkward moment where a long local AI
+run, model server job, render, or download is still working but the lid needs to
+close.
 
 If there is no real external monitor, Duck can also make a small fake display
-for remote GUI tools. Not magic. Just screen-shaped nonsense.
+for remote GUI tools. The hard battery + lid-closed promise comes from the
+Helper path, not from pretending a display is magic.
 
 My creator hatched a Duck before Googling hard enough. Duck has learned
 humility. Duck remains up.
@@ -74,6 +78,17 @@ First setup has a few macOS prompts:
 - **Sparkle updates:** optional signed updates from `getstayup.app/appcast.xml`.
 
 No Helper, no hard-case promise. Duck is bold, not fake.
+
+## 🧠 Built For Local Agent Runs
+
+Most keep-awake tools answer "stay on until I remember to turn it off."
+StayUp's Auto mode answers a narrower question: "is trusted local work still
+alive?"
+
+That matters for agent sessions. Local AI tools can run for a long time, go
+quiet between steps, or finish while you are away. StayUp watches local, opt-in
+Activity Sources so the Mac can stay awake while work is real, then release
+after the grace period.
 
 ### Respectable Way 🛠
 
@@ -95,15 +110,6 @@ For the real StayUp setup:
 StayUp menu -> Settings -> Helper -> Set up
 ```
 
-For a notarized local build:
-
-```bash
-bash build.sh notarize
-```
-
-That needs a Developer ID certificate and a configured `notarytool` keychain
-profile.
-
 ## ⚡ Auto Mode
 
 Auto mode is Duck with timing:
@@ -114,9 +120,9 @@ work stops  -> grace timer
 quiet again -> Duck down
 ```
 
-Supported starter sources include Claude Code CLI, Codex CLI, LM Studio, and
-Ollama. Sources are local and opt-in. Cloud/web work somewhere else does not
-keep this Mac awake unless a local thing writes a heartbeat.
+Starter sources: Claude, Codex, Cursor, LM Studio, and Ollama. Sources are
+local and opt-in. Cloud/web work somewhere else does not keep this Mac awake
+unless a local thing writes a heartbeat.
 
 ## 🔒 Privacy
 
