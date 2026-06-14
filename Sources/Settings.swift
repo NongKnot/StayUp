@@ -71,8 +71,8 @@ enum Settings {
         set { d.set(newValue, forKey: "stayup.autoSourceEnabled") }
     }
 
-    /// Consent for editing bundled reported-source hook configs such as
-    /// Claude Code and Codex. Auto can still watch observed sources without it.
+    /// Consent for editing bundled reported-source hook configs. Auto can
+    /// still watch observed sources without it.
     static var reportedHookConsentKnown: Bool {
         d.object(forKey: "stayup.reportedHookConsentKnown") as? Bool ?? false
     }

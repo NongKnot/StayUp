@@ -66,6 +66,14 @@ class MenuController: NSObject, NSMenuDelegate {
     /// Called on every state change (updateUI), every monitor evaluate, and when
     /// the nap deadline changes.
     func publishStatus() {
+        func enabledSourceDisplayNames() -> [String] {
+            let namesByKey = Dictionary(
+                uniqueKeysWithValues: ExternalSourceWatcher.configuredSourceInfo().map { ($0.key, $0.displayName) }
+            )
+            return Settings.enabledSources
+                .map { namesByKey[$0] ?? "Activity Source" }
+                .sorted()
+        }
         func word(_ s: ActivitySourceSession) -> String {
             if s.isExternal { return s.working ? "activity seen" : "idle" }
             if s.working    { return s.toolsInFlight > 0 ? "running" : "active" }
@@ -102,10 +110,13 @@ class MenuController: NSObject, NSMenuDelegate {
             "dontDiePct": Settings.dontDiePct,
             "walking": isWalkingNow,
             "graceSecs": Settings.autoGraceSecs,
-            "enabledSources": Array(Settings.enabledSources).sorted(),
+            "enabledSources": enabledSourceDisplayNames(),
             "anySourceWorking": sourceMonitor.isAnySourceWorking,
             "sources": sessions,
         ]
+        if let sleepDisabled = StayUpHelper.shared.sleepDisabledLiveState() {
+            status["sleepDisabled"] = sleepDisabled
+        }
         if let pct = powerSource.batteryPercent() { status["batteryPct"] = pct }
         if let at = autoStandDownAt { status["napAt"] = Int(at.timeIntervalSince1970) }
         if isWalkingNow, let started = walkDetector.walkStartedAt {
@@ -436,7 +447,7 @@ class MenuController: NSObject, NSMenuDelegate {
         let a = NSAlert()
         a.messageText = names.count == 1
             ? "Connect \(names[0])?"
-            : "Connect Claude Code and Codex?"
+            : "Connect trusted sources?"
         a.informativeText =
             "StayUp can add its own hook entries so Auto knows when these tools are working. Existing config is preserved, a .stayup.bak backup is made before edits, and cleanup removes only StayUp entries."
         a.alertStyle = .informational
@@ -489,8 +500,8 @@ class MenuController: NSObject, NSMenuDelegate {
     private func presentHookWarning(_ error: Error) {
         if Self.isTestMode { return }
         let a = NSAlert()
-        a.messageText     = "Auto is on, but tool connection failed"
-        a.informativeText = "StayUp is still watching observed Activity Sources like Ollama and LM Studio. Claude Code or Codex may not report activity until the hook connection succeeds.\n\n\(error)"
+        a.messageText     = "Auto is on, but source connection failed"
+        a.informativeText = "StayUp is still watching observed Activity Sources like model servers and app workflow signals. Reported CLI sources may not report activity until the hook connection succeeds.\n\n\(error)"
         a.alertStyle      = .warning
         a.addButton(withTitle: "OK")
         NSApp.activate(ignoringOtherApps: true)
@@ -1220,10 +1231,7 @@ class MenuController: NSObject, NSMenuDelegate {
     /// Status line — staged + colour-coded, dot leading. Walking > sleeping
     /// soon (auto countdown) > source-running > protected > not protecting.
     private func updateStatusLine() {
-        if isWalkingNow, let started = walkDetector.walkStartedAt {
-            let secs = Int(Date().timeIntervalSince(started))
-            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · protected · walking \(formatMMSS(secs))", on: true, color: .systemTeal)
-        } else if !active {
+        if !active {
             statusMenuItem.attributedTitle = dotTitle("○", "STAYUP · not protecting", on: false)
         } else if let at = autoStandDownAt, at.timeIntervalSinceNow > 0 {
             let secs = max(0, Int(at.timeIntervalSinceNow))
@@ -1428,6 +1436,7 @@ class MenuController: NSObject, NSMenuDelegate {
         virtualDisplay.isActive:      \(virtualDisplay.isActive)
         StayUpHelper.status:          \(StayUpHelper.shared.status)
         StayUpHelper.isEnabled:       \(StayUpHelper.shared.isEnabled)
+        SleepDisabled.live:           \(StayUpHelper.shared.sleepDisabledLiveState().map(String.init) ?? "unknown")
         ====================
 
         """
