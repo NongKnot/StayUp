@@ -554,8 +554,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
             sourceDeleteTargets[source.folderSlug] = source
             var actions: [NSView] = []
-            if (source.method == "reported" || source.type == "reported"),
-               !ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
+            if Self.sourceNeedsManagedConnection(source) {
                 let connect = NSButton(title: "Connect", target: self, action: #selector(connectSourceHooks(_:)))
                 connect.bezelStyle = .rounded
                 connect.controlSize = .small
@@ -591,11 +590,16 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         if enabled {
             return "Trusted for Auto"
         }
-        if (source.method == "reported" || source.type == "reported"),
-           !ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
+        if sourceNeedsManagedConnection(source) {
             return "Needs connection"
         }
         return "Available"
+    }
+
+    private static func sourceNeedsManagedConnection(_ source: ExternalSourceWatcher.ConfiguredSourceInfo) -> Bool {
+        (source.method == "reported" || source.type == "reported") &&
+            ActivitySourceHookInstaller.canManageHooks(for: source.key) &&
+            !ActivitySourceHookInstaller.isHookInstalled(for: source.key)
     }
 
     private func updateSourceSummary(sources: [ExternalSourceWatcher.ConfiguredSourceInfo]? = nil) {
@@ -789,20 +793,21 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
     }
 
-    private static let codexTrustNote =
-        "Connected Codex CLI. Close any open Codex CLI session, reopen `codex`, then trust the StayUp hooks when Codex asks. The path should be ~/.stayup/bin/stayup-source-hook-codex-cli.sh."
+    private static func trustNote(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
+        "Connected \(source.displayName). Close any open session for that source, reopen it, then trust the StayUp hooks if it asks. The hook path should live under ~/.stayup/bin/."
+    }
 
     private static func connectHookMessage(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
         var text = "StayUp needs to add its own hook entries before Auto can trust this source. Existing config is preserved, and cleanup removes only StayUp entries."
-        if source.key == "Codex" {
-            text += "\n\nCodex needs one more nod after this: close any open Codex CLI session, reopen `codex`, then trust the StayUp hooks when Codex asks. Codex may show 7 hook events; they all call one StayUp wrapper at ~/.stayup/bin/stayup-source-hook-codex-cli.sh."
+        if ActivitySourceHookInstaller.canManageHooks(for: source.key) {
+            text += "\n\nAfter connecting, close any open session for \(source.displayName), reopen it, then trust the StayUp hooks if it asks. Several hook events can point to one StayUp wrapper; that is expected."
         }
         return text
     }
 
     private static func connectedHookNote(for source: ExternalSourceWatcher.ConfiguredSourceInfo) -> String {
-        source.key == "Codex"
-            ? codexTrustNote
+        ActivitySourceHookInstaller.canManageHooks(for: source.key)
+            ? trustNote(for: source)
             : "Connected \(source.displayName). Tick it to trust it for Auto."
     }
 
@@ -836,13 +841,30 @@ StayUp source model:
 - Source recipe: ~/.stayup/sources/<source-slug>/source.json
 - Live receipts: ~/.stayup/sources/<source-slug>/active/
 - Preferred: the tool reports activity by writing heartbeat receipts under active/.
-- Generic reported CLIs can call ~/.stayup/bin/stayup-source-hook.sh with STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, and optional STAYUP_SESSION_ID.
-- Custom reported sources do not require StayUp app-code changes. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh that sets STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, and STAYUP_SOURCE_KEY, exports them, then execs ~/.stayup/bin/stayup-source-hook.sh "$@". Install the target tool's hooks so each event calls that wrapper with one StayUp action. The script creates the reported source.json automatically on first heartbeat.
+- Generic reported CLIs can call ~/.stayup/bin/stayup-source-hook.sh working, not-working, or stop with STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, optional STAYUP_SESSION_ID, optional STAYUP_SOURCE_PID, and optional STAYUP_SOURCE_TRANSCRIPT_PREFIXES.
+- Custom reported sources do not require StayUp app-code changes. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh that sets STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, and STAYUP_SOURCE_KEY, exports them, then execs ~/.stayup/bin/stayup-source-hook.sh "$@". If the hook payload includes a transcript_path or similar local receipt path, set STAYUP_SOURCE_TRANSCRIPT_PREFIXES to a colon-separated list of absolute source-owned roots so compatible hosts cannot cross-report as this source. Install the target tool's hooks so local work calls working, idle/waiting calls not-working, and session end calls stop. The script creates the reported source.json automatically on first heartbeat.
+- For reported sources, create or update ~/.stayup/sources/<source-slug>/source.json immediately after the wrapper/hook mapping is ready, even before the first live heartbeat. This lets StayUp Settings show the source after Refresh. Do not create an active receipt by hand except for a deliberate test heartbeat.
 - If reinstalling or restoring a reported source and its source-specific wrapper already exists as a harmless no-op, overwrite that wrapper with the real source wrapper. If the target tool's hooks already call that wrapper with the right actions, reuse them instead of adding duplicates.
-- If ~/.stayup/bin/stayup-source-hook.sh is missing, create ~/.stayup/bin and copy it from /Applications/StayUp.app/Contents/Resources/stayup-source-hook.sh when that file exists, then chmod 755 it. If the installed app resource is unavailable, ask the user to open StayUp or return needs_user_test. Do not edit the StayUp source repo.
-- Codex CLI trust step: after installing Codex CLI hooks, tell the user to close any open Codex CLI session, reopen `codex`, then trust the StayUp hooks when Codex shows "hooks need review." The trusted path should be ~/.stayup/bin/stayup-source-hook-codex-cli.sh. Codex may show 7 hook events; that is expected because one StayUp wrapper is attached to several Codex lifecycle events.
+- Create ~/.stayup/bin and refresh ~/.stayup/bin/stayup-source-hook.sh from /Applications/StayUp.app/Contents/Resources/stayup-source-hook.sh when that file exists, then chmod 755 it. Do this even if a previous hook script already exists, so the connector uses the newly installed StayUp writer. If the installed app resource is unavailable, ask the user to open StayUp or return needs_user_test. Do not edit the StayUp source repo.
+- Reported CLI trust step: after installing CLI hooks, tell the user to close any open session for that CLI, reopen it, then trust the StayUp hooks if the CLI asks. The trusted path should live under ~/.stayup/bin/. Several hook events may call one StayUp wrapper; that is expected.
 - Fallback observed types are exactly: file, logPattern, socket, process.
 - Do not invent other type values.
+
+Codex CLI / IDE special case:
+- Use Codex's user-level hook config at ~/.codex/hooks.json for hook-capable Codex CLI/IDE surfaces.
+- Use StayUp's canonical source identity so Settings, Delete, Restore Defaults, and built-in hook repair all agree: STAYUP_SOURCE_NAME="Codex", STAYUP_SOURCE_SLUG="codex-cli", STAYUP_SOURCE_DISPLAY="Codex", STAYUP_SOURCE_KEY="Codex".
+- Use a wrapper at ~/.stayup/bin/stayup-source-hook-codex-cli.sh that exports those values plus STAYUP_SOURCE_TRANSCRIPT_PREFIXES="$HOME/.codex/" and execs ~/.stayup/bin/stayup-source-hook.sh "$@".
+- Map Codex events: SessionStart -> waiting, UserPromptSubmit -> turn-start, PreToolUse -> tool-begin, PostToolUse -> tool-end, SubagentStart -> active, SubagentStop -> active, Stop -> stop.
+- Write ~/.stayup/sources/codex-cli/source.json with name Codex, displayName Codex, type reported, method reported.
+- After editing ~/.codex/hooks.json, tell the user to close/reopen Codex CLI/IDE and trust the StayUp hooks via /hooks if Codex asks. Do not create a separate "Codex App" source key.
+
+Cursor special case:
+- Use Cursor's user-level hook config at ~/.cursor/hooks.json. Current Cursor docs say hooks can live in ~/.cursor/hooks.json and expose events including sessionStart, beforeSubmitPrompt, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, stop, and sessionEnd.
+- Use StayUp's canonical source identity so Settings, Delete, Restore Defaults, and built-in hook repair all agree: STAYUP_SOURCE_NAME="Cursor", STAYUP_SOURCE_SLUG="cursor", STAYUP_SOURCE_DISPLAY="Cursor", STAYUP_SOURCE_KEY="Cursor".
+- Use a wrapper at ~/.stayup/bin/stayup-source-hook-cursor.sh that exports those values plus STAYUP_SOURCE_TRANSCRIPT_PREFIXES="$HOME/.cursor/" and execs ~/.stayup/bin/stayup-source-hook.sh "$@".
+- Map Cursor events: sessionStart -> waiting, beforeSubmitPrompt -> turn-start, preToolUse -> tool-begin, postToolUse -> tool-end, postToolUseFailure -> tool-end, subagentStart -> active, subagentStop -> active, stop -> stop, sessionEnd -> stop.
+- Write ~/.stayup/sources/cursor/source.json with name Cursor, displayName Cursor, type reported, method reported.
+- After editing ~/.cursor/hooks.json, tell the user to close/reopen Cursor and trust the StayUp hooks if Cursor asks. Do not create a separate "Cursor App" source key.
 
 Good signals mean active local work:
 - heartbeat from tool events
@@ -866,8 +888,8 @@ Workflow:
 2. For real-work sources, inspect idle state first.
 3. For app-open presence sources, inspect closed/absent state and open/present state. A process source with minCpu 0 is acceptable if it cleanly tracks the requested app/tool.
 4. For real-work sources, inspect active state from a tiny local job; ask the user before running anything expensive, killing processes, installing software, or editing config.
-5. Prefer reported heartbeat if the tool has hooks/events for turn start, active work, waiting/idle, or stop. Install that mapping in the tool's own hook/config file, not in ~/.stayup/sources by hand.
-6. Use tool-begin/tool-end only when those hooks are reliable paired lifecycle events. If the tool can only prove "work happened recently", map those hooks to active instead of exposing a fake in-flight tool count.
+5. Prefer reported heartbeat if the tool has hooks/events for working, waiting/idle, or stop. Install that mapping in the tool's own hook/config file, not in ~/.stayup/sources by hand.
+6. Use the simple states first: working means protect the Mac, not-working means do not protect and let StayUp's grace timer run, stop removes the receipt. Only use advanced tool-begin/tool-end if those hooks are reliable paired lifecycle events.
 7. Otherwise choose the smallest observed signal that matches the user's intent.
 8. If the evidence is weak, return needs_user_test or no_source. Do not guess.
 
@@ -907,7 +929,8 @@ why_this_means_local_work:
 false_positives:
 false_negatives:
 user_instruction:
-If source_method is reported, add hooks to the tool's own hook/config file. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh; each hook should call that wrapper with one action: turn-start, active, waiting, stop, and only use tool-begin/tool-end for reliable paired tool lifecycle events. The wrapper should set and export STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, and optional STAYUP_SESSION_ID, then exec ~/.stayup/bin/stayup-source-hook.sh "$@". If source_method is file, logPattern, socket, or process, save observed_source as ~/.stayup/sources/<source-slug>/source.json, then open StayUp Settings -> Advanced, click Refresh, and tick the source.
+If source_method is reported, add hooks to the tool's own hook/config file. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh; each hook should call that wrapper with one simple action: working, not-working, or stop. Advanced mappings may use turn-start, active, waiting, tool-begin, and tool-end only when the tool exposes reliable paired lifecycle events. The wrapper should set and export STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, optional STAYUP_SESSION_ID, optional STAYUP_SOURCE_PID if the tool exposes its long-lived process id, and optional STAYUP_SOURCE_TRANSCRIPT_PREFIXES if the hook payload includes a source-owned transcript_path or similar receipt root, then exec ~/.stayup/bin/stayup-source-hook.sh "$@". Also create ~/.stayup/sources/<source-slug>/source.json with schema app.getstayup.activity-source.v1, type reported, method reported, name STAYUP_SOURCE_KEY, and displayName STAYUP_SOURCE_DISPLAY so StayUp can show the source before the first hook fires. If source_method is file, logPattern, socket, or process, save observed_source as ~/.stayup/sources/<source-slug>/source.json. Then open StayUp Settings -> Advanced, click Refresh, tick the source, set Mode to Auto, and choose the After stop grace period.
+For Codex CLI / IDE, use the canonical source identity and hook mapping above instead of creating a separate Codex App source.
 If no supported source is strong enough, say what support would make it detectable, such as a native heartbeat hook, task-state API, lifecycle log, active-work socket, or parent-scoped child-process tracking.
 """
 
@@ -964,9 +987,14 @@ If no supported source is strong enough, say what support would make it detectab
     }
 
     private func syncHelper() {
+        let sleepDisabled = StayUpHelper.shared.sleepDisabledLiveState()
         switch StayUpHelper.shared.status {
         case .enabled:
-            helperStatus.stringValue = "Ready for lid-closed battery mode."
+            if sleepDisabled == true {
+                helperStatus.stringValue = "Ready. SleepDisabled is active now."
+            } else {
+                helperStatus.stringValue = "Ready for lid-closed battery mode."
+            }
             helperStatus.textColor   = .systemGreen
             helperButton.title       = "Uninstall Helper"
         case .requiresApproval:
@@ -1031,8 +1059,7 @@ If no supported source is strong enough, say what support would make it detectab
         let enabling = sender.state == .on
         if enabling,
            let source = ExternalSourceWatcher.configuredSourceInfo().first(where: { $0.key == key }),
-           (source.method == "reported" || source.type == "reported"),
-           !ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
+           Self.sourceNeedsManagedConnection(source) {
             guard confirmConnectSourceHooks(source) else {
                 sender.state = .off
                 Settings.setSource(key, enabled: false)
@@ -1055,8 +1082,8 @@ If no supported source is strong enough, say what support would make it detectab
         rebuildSourceList()
         if enabling,
            let source = ExternalSourceWatcher.configuredSourceInfo().first(where: { $0.key == key }),
-           source.key == "Codex" {
-            sourceActionNote.stringValue = Self.codexTrustNote
+           ActivitySourceHookInstaller.canManageHooks(for: source.key) {
+            sourceActionNote.stringValue = Self.trustNote(for: source)
         }
         onChange?()
     }
@@ -1080,7 +1107,7 @@ Use this when Auto should watch a local app or tool.
 1. Copy the setup prompt.
 2. Open a fresh frontier AI or coding assistant session.
 3. Paste the prompt and follow its steps.
-4. Come back here, click Refresh, then tick the new source.
+4. Come back here, click Refresh, tick the new source, then set Mode to Auto.
 
 Duck tip: best sources prove real work. App-open sources are okay if that is what you want.
 """
@@ -1101,7 +1128,12 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
     private func copySourcePrompt() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(Self.sourceSetupPrompt, forType: .string)
-        sourceActionNote.stringValue = "Setup prompt copied."
+        do {
+            try ActivitySourceHookInstaller.deployReusableHookScript()
+            sourceActionNote.stringValue = "Setup prompt copied. Hook writer is ready."
+        } catch {
+            sourceActionNote.stringValue = "Setup prompt copied. Could not refresh hook writer: \(error.localizedDescription)"
+        }
     }
     @objc private func openSourcesFolder() {
         let url = ExternalSourceWatcher.ensureStayUpFolder()
@@ -1128,13 +1160,21 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
         alert.messageText = "Delete \(source.displayName)?"
         var cleanupHooks = false
         if source.method == "reported" || source.type == "reported" {
-            alert.informativeText = "Disable removes the StayUp source and leaves tool config alone. Clean Up Hooks also removes StayUp entries from the tool config. Neither deletes apps, models, projects, logs, or unrelated config."
-            alert.addButton(withTitle: "Disable")
-            alert.addButton(withTitle: "Clean Up Hooks")
-            alert.addButton(withTitle: "Cancel")
-            let response = alert.runModal()
-            guard response != .alertThirdButtonReturn else { return }
-            cleanupHooks = (response == .alertSecondButtonReturn)
+            let canManageHooks = ActivitySourceHookInstaller.canManageHooks(for: source.key)
+            if canManageHooks {
+                alert.informativeText = "Disable removes the StayUp source and leaves tool config alone. Clean Up Hooks also removes StayUp entries from the tool config. Neither deletes apps, models, projects, logs, or unrelated config."
+                alert.addButton(withTitle: "Disable")
+                alert.addButton(withTitle: "Clean Up Hooks")
+                alert.addButton(withTitle: "Cancel")
+                let response = alert.runModal()
+                guard response != .alertThirdButtonReturn else { return }
+                cleanupHooks = (response == .alertSecondButtonReturn)
+            } else {
+                alert.informativeText = "Disable removes the StayUp source and replaces the standard StayUp wrapper with a no-op when possible. It will not edit the tool's own config, apps, models, projects, logs, or unrelated settings."
+                alert.addButton(withTitle: "Disable")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+            }
         } else {
             alert.informativeText = "This removes its StayUp setup and disables it. It will not delete the app or tool itself."
             alert.addButton(withTitle: "Delete")
@@ -1155,7 +1195,8 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
     }
     @objc private func connectSourceHooks(_ sender: NSButton) {
         guard let slug = sender.identifier?.rawValue,
-              let source = sourceDeleteTargets[slug] else { return }
+              let source = sourceDeleteTargets[slug],
+              ActivitySourceHookInstaller.canManageHooks(for: source.key) else { return }
 
         do {
             Settings.setReportedHookConnectionAllowed(true)
@@ -1214,7 +1255,7 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
         }
     }
     @objc private func autoUpdateToggled() {
-        SparkleUpdater.shared.automaticChecksEnabled = (autoUpdateCheck.state == .on)
+        SparkleUpdater.shared.setAutomaticChecksEnabledFromUserAction(autoUpdateCheck.state == .on)
     }
     @objc private func checkUpdatesNow() {
         SparkleUpdater.shared.checkForUpdatesNow()
@@ -1234,16 +1275,13 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
             alert.addButton(withTitle: "Cancel")
             guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-            // CRITICAL: wait for the daemon to confirm `pmset disablesleep 0`
-            // before unregistering. SMAppService.unregister() stops the
-            // daemon; if we kill it before pmset finishes, the system-wide
-            // disablesleep flag can stay stuck on.
-            guard helper.disableAndWait() else {
-                let error = NSError(
-                    domain: "app.getstayup.helper",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey:
-                        "Duck could not confirm macOS sleep was restored. Try again while the Helper is running."])
+            // CRITICAL: restore macOS sleep before unregistering.
+            // SMAppService.unregister() stops the daemon; if we kill it
+            // before `pmset disablesleep 0` finishes, the system-wide flag
+            // can stay stuck on.
+            do {
+                try helper.prepareForUnregister()
+            } catch {
                 presentHelperError("Couldn't uninstall the Helper", error)
                 return
             }

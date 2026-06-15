@@ -55,10 +55,10 @@ it's relevant context:
 - **No network calls** during normal operation. Two exceptions:
   - Opening `getstayup.app/tip` in the user's browser when they click
     "Feed Duck" in Settings → About.
-  - Sparkle update checks against `getstayup.app/appcast.xml` — opt-in
-    only (Settings → About → "Automatically check for updates", or
-    the second-launch Sparkle prompt). Update payloads are EdDSA-signed
-    so a compromised CDN can't ship a backdoored DMG.
+  - Signed update checks — opt-in only from Welcome, Settings, or
+    Sparkle's second-launch prompt; users can also manually check for
+    updates. Update payloads are EdDSA-signed so a compromised CDN
+    can't ship a backdoored DMG.
 - **Auto mode** reads local Activity Source files only: it watches
   `~/.stayup/sources/<source>/source.json` recipes and
   `~/.stayup/sources/<source>/active/` receipts, optionally parses

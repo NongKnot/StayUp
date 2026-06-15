@@ -21,9 +21,24 @@ import ServiceManagement
 final class StayUpHelper {
     static let shared = StayUpHelper()
 
+    enum UnregisterPreparationError: LocalizedError {
+        case sleepStillDisabled
+        case unableToConfirmSleepRestored
+
+        var errorDescription: String? {
+            switch self {
+            case .sleepStillDisabled:
+                return "Duck could not turn macOS sleep back on. Try again while the Helper is running."
+            case .unableToConfirmSleepRestored:
+                return "Duck could not confirm macOS sleep was restored. Try again while the Helper is running."
+            }
+        }
+    }
+
     private let socketPath = "/var/run/app.getstayup.helper.sock"
     private let service = SMAppService.daemon(
         plistName: "app.getstayup.helper.plist")
+    private var sleepDisabledCache: (checkedAt: Date, value: Bool?)?
 
     /// Live launchd state. Computed on every access.
     var status: SMAppService.Status { service.status }
@@ -55,23 +70,107 @@ final class StayUpHelper {
         // daemon binary is gone, so the socket connect refuses. Detect
         // that and `register()` to refresh the registration to the
         // current bundle's plist. Silently transparent to users.
-        if !sendCommand("enable") && isEnabled {
+        var sent = sendCommand("enable")
+        if !sent && isEnabled {
             try? service.register()
             // Tiny grace period for launchd to load the new plist;
             // the daemon plist has RunAtLoad so it's near-instant.
             Thread.sleep(forTimeInterval: 0.3)
-            _ = sendCommand("enable")
+            sent = sendCommand("enable")
+        }
+        if sent {
+            sleepDisabledCache = nil
         }
     }
 
-    func disable() { _ = sendCommand("disable") }
+    func disable() {
+        if sendCommand("disable") {
+            sleepDisabledCache = nil
+        }
+    }
+
+    /// Reads the live kernel-visible `pmset disablesleep` state without
+    /// mutating power settings. Returns nil if `ioreg` is unavailable or
+    /// the key is absent on this macOS version.
+    func sleepDisabledLiveState(forceRefresh: Bool = false) -> Bool? {
+        if !forceRefresh,
+           let cached = sleepDisabledCache,
+           Date().timeIntervalSince(cached.checkedAt) < 2 {
+            return cached.value
+        }
+
+        let value = readSleepDisabledLiveState()
+        sleepDisabledCache = (Date(), value)
+        return value
+    }
+
+    /// Makes unregister safe. Prefer the helper's own synchronous disable
+    /// reply; if a stale registration makes the socket unreachable, refresh
+    /// launchd's registration and try once more. If the daemon is still
+    /// unreachable but macOS already reports SleepDisabled=false, unregister
+    /// is safe because there is no system-wide sleep block to leak.
+    func prepareForUnregister() throws {
+        if disableAndWait() { return }
+
+        switch sleepDisabledLiveState(forceRefresh: true) {
+        case .some(false):
+            return
+        case .some(true):
+            throw UnregisterPreparationError.sleepStillDisabled
+        case nil:
+            throw UnregisterPreparationError.unableToConfirmSleepRestored
+        }
+    }
+
+    private func readSleepDisabledLiveState() -> Bool? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/ioreg")
+        p.arguments = ["-r", "-k", "SleepDisabled"]
+
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+
+        do {
+            try p.run()
+            p.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        guard p.terminationStatus == 0 else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+
+        for rawLine in text.split(separator: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard line.contains("\"SleepDisabled\"") else { continue }
+            if line.contains("Yes") || line.contains("true") || line.contains("1") { return true }
+            if line.contains("No") || line.contains("false") || line.contains("0") { return false }
+        }
+        return nil
+    }
 
     /// Used before unregistering the daemon. The helper replies only after
     /// `pmset disablesleep 0` exits, so a true return means it is safe to
     /// unregister without leaving the system-wide disablesleep flag stuck on.
     @discardableResult
     func disableAndWait() -> Bool {
-        sendCommand("disable", waitForReply: true)
+        if sendCommand("disable", waitForReply: true) {
+            sleepDisabledCache = (Date(), false)
+            return true
+        }
+
+        if isEnabled {
+            try? service.register()
+            Thread.sleep(forTimeInterval: 0.3)
+            if sendCommand("disable", waitForReply: true) {
+                sleepDisabledCache = (Date(), false)
+                return true
+            }
+        }
+
+        return false
     }
 
     /// Opens the helper socket, sends `command\n`, and reports whether

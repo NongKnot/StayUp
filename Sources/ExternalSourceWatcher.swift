@@ -24,8 +24,8 @@ import Foundation
 /// absent: they don't run on this Mac, so they can't keep it awake.
 final class ExternalSourceWatcher {
 
-    private static let bundledReportedSourceNames: Set<String> = ["Claude", "Codex"]
-    private static let bundledObservedSourceNames: Set<String> = ["Gemini", "Cursor", "Ollama", "LM Studio"]
+    private static let bundledReportedSourceNames: Set<String> = ["Claude", "Codex", "Cursor"]
+    private static let bundledObservedSourceNames: Set<String> = ["Ollama", "LM Studio"]
     private static let bundledSourceNames = bundledReportedSourceNames.union(bundledObservedSourceNames)
 
     struct ConfiguredSourceInfo {
@@ -73,8 +73,8 @@ final class ExternalSourceWatcher {
         writeSourceHelpFiles()
         removeRetiredBundledDefaults()
         removeRetiredReportedAliases()
-        writeSourceFilesIfMissing(defaults)
-        writeReportedSourceFilesIfMissing()
+        writeBundledSourceFiles(defaults)
+        writeReportedSourceFiles()
         return folder
     }
 
@@ -116,7 +116,7 @@ final class ExternalSourceWatcher {
                 guard let source = source(from: dict) else { return nil }
                 return ConfiguredSourceInfo(
                     key: source.name,
-                    displayName: source.displayName ?? source.name,
+                    displayName: publicDisplayName(for: source),
                     type: source.type,
                     method: (dict["method"] as? String) ?? source.type,
                     folderSlug: source.folderSlug ?? slug(for: source.name, displayName: source.displayName),
@@ -133,7 +133,7 @@ final class ExternalSourceWatcher {
     private static func bundledSourceInfos() -> [ConfiguredSourceInfo] {
         reportedSourceInfos + defaults.map {
             ConfiguredSourceInfo(key: $0.name,
-                                 displayName: $0.displayName ?? $0.name,
+                                 displayName: publicDisplayName(for: $0),
                                  type: $0.type,
                                  method: $0.type,
                                  folderSlug: slug(for: $0.name, displayName: $0.displayName),
@@ -154,7 +154,8 @@ final class ExternalSourceWatcher {
         }
 
         if source.method == "reported" || source.type == "reported" {
-            if cleanupHooks {
+            let canManageHooks = ActivitySourceHookInstaller.canManageHooks(for: source.key)
+            if cleanupHooks && canManageHooks {
                 try ActivitySourceHookInstaller.cleanupHooks(for: source.key)
             } else {
                 try ActivitySourceHookInstaller.disableSource(named: source.key, folderSlug: source.folderSlug)
@@ -175,7 +176,7 @@ final class ExternalSourceWatcher {
         if let known = (reportedSources + defaults).first(where: { $0.name.caseInsensitiveCompare(source.key) == .orderedSame }) {
             let normalized = sourceWithKnownDisplayName(known)
             let method = bundledReportedSourceNames.contains(normalized.name) ? "reported" : normalized.type
-            writeSourceFileIfMissing(normalized, method: method)
+            writeBundledSourceFile(normalized, method: method)
             if method == "reported" {
                 Settings.setReportedHookConnectionAllowed(true)
                 try ActivitySourceHookInstaller.installHooks(for: normalized.name)
@@ -188,8 +189,8 @@ final class ExternalSourceWatcher {
             Settings.setSourceDeleted(source.name, deleted: false)
             Settings.setSource(source.name, enabled: false)
         }
-        writeSourceFilesIfMissing(defaults)
-        writeReportedSourceFilesIfMissing()
+        writeBundledSourceFiles(defaults)
+        writeReportedSourceFiles()
     }
 
     private func isActive(_ s: Source) -> Bool {
@@ -455,8 +456,8 @@ final class ExternalSourceWatcher {
         Self.writeSourceHelpFiles()
         Self.removeRetiredBundledDefaults()
         Self.removeRetiredReportedAliases()
-        Self.writeSourceFilesIfMissing(Self.defaults)
-        Self.writeReportedSourceFilesIfMissing()
+        Self.writeBundledSourceFiles(Self.defaults)
+        Self.writeReportedSourceFiles()
         let sourceSources = Self.loadSourceDictionaries().compactMap(Self.source(from:))
         return sourceSources.isEmpty ? (Self.defaults + Self.reportedSources) : sourceSources
     }
@@ -474,7 +475,7 @@ final class ExternalSourceWatcher {
 
     private static func dictionary(from source: Source) -> [String: Any] {
         var d: [String: Any] = ["name": source.name, "type": source.type]
-        if let displayName = source.displayName { d["displayName"] = displayName }
+        d["displayName"] = publicDisplayName(for: source)
         if let path = source.path { d["path"] = path }
         if let match = source.match { d["match"] = match }
         if let activePattern = source.activePattern { d["activePattern"] = activePattern }
@@ -495,6 +496,9 @@ final class ExternalSourceWatcher {
         switch name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "claude": return "claude-code-cli"
         case "codex": return "codex-cli"
+        case "cursor": return "cursor"
+        case "ollama": return "ollama"
+        case "lm studio": return "lm-studio"
         default:
             let raw = (displayName?.isEmpty == false ? displayName! : name).lowercased()
             var out = ""
@@ -537,23 +541,23 @@ final class ExternalSourceWatcher {
         return sources.filter { seen.insert($0.key).inserted }
     }
 
-    private static func writeReportedSourceFilesIfMissing() {
+    private static func writeReportedSourceFiles() {
         for source in reportedSources {
-            writeSourceFileIfMissing(source, method: "reported")
+            writeBundledSourceFile(source, method: "reported")
         }
     }
 
-    private static func writeSourceFilesIfMissing(_ sources: [Source]) {
+    private static func writeBundledSourceFiles(_ sources: [Source]) {
         for source in sources {
             let normalized = sourceWithKnownDisplayName(source)
-            writeSourceFileIfMissing(normalized, method: bundledReportedSourceNames.contains(normalized.name) ? "reported" : normalized.type)
+            writeBundledSourceFile(normalized, method: bundledReportedSourceNames.contains(normalized.name) ? "reported" : normalized.type)
         }
     }
 
     private static func sourceWithKnownDisplayName(_ source: Source) -> Source {
         if source.displayName != nil { return source }
         if let known = (reportedSources + defaults).first(where: { $0.name.caseInsensitiveCompare(source.name) == .orderedSame }) {
-            return Source(name: source.name, displayName: known.displayName,
+            return Source(name: source.name, displayName: publicDisplayName(for: known),
                           folderSlug: source.folderSlug, type: source.type,
                           path: source.path, match: source.match,
                           activePattern: source.activePattern,
@@ -563,11 +567,10 @@ final class ExternalSourceWatcher {
         return source
     }
 
-    private static func writeSourceFileIfMissing(_ source: Source, method: String) {
+    private static func writeBundledSourceFile(_ source: Source, method: String) {
         if Settings.isSourceDeleted(source.name) { return }
         let folder = sourceFolderURL(for: source)
         let sourceURL = folder.appendingPathComponent("source.json")
-        if FileManager.default.fileExists(atPath: sourceURL.path) { return }
 
         try? FileManager.default.createDirectory(
             at: folder.appendingPathComponent("active", isDirectory: true),
@@ -579,6 +582,7 @@ final class ExternalSourceWatcher {
         d["method"] = method
         if d["displayName"] == nil { d["displayName"] = source.name }
         guard let data = try? JSONSerialization.data(withJSONObject: d, options: [.prettyPrinted, .sortedKeys]) else { return }
+        if let existing = try? Data(contentsOf: sourceURL), existing == data { return }
         try? data.write(to: sourceURL, options: .atomic)
     }
 
@@ -604,11 +608,11 @@ Use this when the tool cannot report activity directly. Copy
 `SOURCE-TEMPLATE.json` into a new folder as `source.json`, edit it, then open
 StayUp Settings -> Advanced -> Refresh and tick the source.
 
-2. Reported source, for CLIs with lifecycle hooks
+2. Reported source, for tools that can report working/not-working
 
-Use this when the tool has lifecycle hooks like turn start, tool begin/end,
-waiting, or stop. Do not put hook commands in this folder. Add those commands
-to the tool's own hook/config file. See `REPORTED-HOOK-EXAMPLE.md`.
+Use this when the tool can run a command when local work starts, pauses, or
+ends. Do not put hook commands in this folder. Add those commands to the tool's
+own hook/config file. See `REPORTED-HOOK-EXAMPLE.md`.
 
 The hook writes live receipts here automatically:
 
@@ -647,18 +651,63 @@ STAYUP_SOURCE_SLUG="tool-name-cli" \\
 STAYUP_SOURCE_DISPLAY="Tool Name CLI" \\
 STAYUP_SOURCE_KEY="Tool Name" \\
 STAYUP_SESSION_ID="<stable-session-id-if-the-tool-provides-one>" \\
-~/.stayup/bin/stayup-source-hook.sh turn-start
+STAYUP_SOURCE_PID="<long-lived-tool-pid-if-available>" \\
+~/.stayup/bin/stayup-source-hook.sh working
 ```
 
-Map the tool's events to one of these StayUp actions:
+Before adding hooks, refresh the reusable writer from the installed app:
+
+```sh
+mkdir -p ~/.stayup/bin
+cp /Applications/StayUp.app/Contents/Resources/stayup-source-hook.sh ~/.stayup/bin/stayup-source-hook.sh
+chmod 755 ~/.stayup/bin/stayup-source-hook.sh
+```
+
+Map the tool's events to these simple StayUp actions first:
+
+```text
+working      source is doing local work; protect the Mac
+not-working  source is waiting/idle; do not protect, let StayUp's grace run
+stop         session is over; remove the receipt
+```
+
+Exact integrations can also use advanced actions when the tool exposes them:
 
 ```text
 turn-start  user submitted a new prompt / new turn begins
-active      source is thinking or doing local work
 tool-begin  shell command, search, build, test, or local tool starts
 tool-end    that local tool finishes
-waiting     source is waiting on the human; visible but not protecting
-stop        session is over; remove the receipt
+```
+
+Codex CLI/IDE hook surfaces use Codex's user-level hook config at
+`~/.codex/hooks.json`. Use the canonical StayUp source identity so Settings can
+manage it:
+
+```text
+name/display key: Codex
+source slug:      codex-cli
+display label:    Codex
+events:           SessionStart -> waiting
+                  UserPromptSubmit -> turn-start
+                  PreToolUse -> tool-begin
+                  PostToolUse -> tool-end
+                  SubagentStart/SubagentStop -> active
+                  Stop -> stop
+```
+
+Cursor uses `~/.cursor/hooks.json`. Use the canonical StayUp source identity
+so Settings can manage it:
+
+```text
+name/display key: Cursor
+source slug:      cursor
+display label:    Cursor
+events:           sessionStart -> waiting
+                  beforeSubmitPrompt -> turn-start
+                  preToolUse -> tool-begin
+                  postToolUse/postToolUseFailure -> tool-end
+                  subagentStart/subagentStop -> active
+                  stop/sessionEnd -> stop
 ```
 
 After the tool runs one hook, StayUp creates:
@@ -668,41 +717,75 @@ After the tool runs one hook, StayUp creates:
 ~/.stayup/sources/tool-name-cli/active/<session-id>
 ```
 
-Then open StayUp Settings -> Advanced -> Refresh and tick the source.
+You can also create `source.json` before the first hook runs so the source
+appears in Settings immediately. Do not create files under `active/` by hand
+except for a deliberate test heartbeat.
+
+Then open StayUp Settings -> Advanced -> Refresh, tick the source, set Mode to
+Auto, and choose the After stop grace period.
 """)
     }
 
     private static func writeTextFileIfChanged(named filename: String, contents: String) {
         let url = sourcesFolderURL.appendingPathComponent(filename)
-        if let existing = try? String(contentsOf: url), existing == contents { return }
+        if let existing = try? String(contentsOf: url, encoding: .utf8), existing == contents { return }
         try? contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private static func removeRetiredBundledDefaults() {
-        let source = Source(name: "Codex Desktop App", displayName: "Codex Desktop App", folderSlug: nil,
-                            type: "file", path: "~/.codex/sessions/*/*/*/*.jsonl", match: nil,
-                            activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 60)
-        let folder = sourceFolderURL(for: source)
+        removeRetiredSource(folderSlug: "codex-desktop-app",
+                            sourceName: "Codex Desktop App",
+                            type: "file",
+                            path: "~/.codex/sessions/*/*/*/*.jsonl")
+        removeRetiredSource(folderSlug: "cli-file-source",
+                            sourceName: "Gemini",
+                            type: "file",
+                            path: "~/.gemini/tmp/*")
+        removeRetiredSource(folderSlug: "gemini-cli",
+                            sourceName: "Gemini",
+                            type: "file",
+                            path: "~/.gemini/tmp/*")
+        removeRetiredSource(folderSlug: "app-workflow-source",
+                            sourceName: "Cursor",
+                            type: "file",
+                            path: "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb")
+        removeRetiredSource(folderSlug: "model-server-source",
+                            sourceName: "Ollama",
+                            type: "socket",
+                            path: nil)
+        removeRetiredSource(folderSlug: "model-server-log-source",
+                            sourceName: "LM Studio",
+                            type: "logPattern",
+                            path: "~/.lmstudio/server-logs/*/*.log")
+    }
+
+    private static func removeRetiredSource(folderSlug: String, sourceName: String, type: String, path: String?) {
+        let folder = sourcesFolderURL.appendingPathComponent(folderSlug, isDirectory: true)
         let sourceURL = folder.appendingPathComponent("source.json")
         guard let data = try? Data(contentsOf: sourceURL),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              (dict["name"] as? String) == source.name,
-              (dict["type"] as? String) == source.type,
-              (dict["path"] as? String) == source.path
+              (dict["name"] as? String) == sourceName,
+              (dict["type"] as? String) == type
         else { return }
+        if let path, (dict["path"] as? String) != path { return }
 
-        Settings.setSource(source.name, enabled: false)
+        Settings.setSource(sourceName, enabled: false)
         try? FileManager.default.removeItem(at: folder)
     }
 
     private static func removeRetiredReportedAliases() {
         removeReportedAlias(folderSlug: "codex", canonicalSlug: "codex-cli", sourceName: "Codex")
+        removeReportedAlias(folderSlug: "cursor-agent", canonicalSlug: "cursor", sourceName: "Cursor")
     }
 
     private static func isRetiredAliasFolder(_ folder: URL) -> Bool {
-        folder.lastPathComponent == "codex"
-            && FileManager.default.fileExists(
-                atPath: sourcesFolderURL.appendingPathComponent("codex-cli", isDirectory: true).path)
+        let aliases: [String: String] = [
+            "codex": "codex-cli",
+            "cursor-agent": "cursor",
+        ]
+        guard let canonicalSlug = aliases[folder.lastPathComponent] else { return false }
+        return FileManager.default.fileExists(
+            atPath: sourcesFolderURL.appendingPathComponent(canonicalSlug, isDirectory: true).path)
     }
 
     private static func removeReportedAlias(folderSlug: String, canonicalSlug: String, sourceName: String) {
@@ -719,21 +802,15 @@ Then open StayUp Settings -> Advanced -> Refresh and tick the source.
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Bundled observed-source defaults. Concrete names live here because this
-    /// is the integration edge; the rest of the app treats them as generic
-    /// Activity Sources.
+    /// Bundled observed-source defaults. Exact names are both internal keys and
+    /// user-facing labels.
     ///
     /// Do not add broad transcript/session-file freshness as a default. It can
     /// look active after the actual work is done and teach Auto to stay up for
     /// the wrong reason.
     private static let defaults: [Source] = [
-        Source(name: "Gemini", displayName: "Gemini CLI", folderSlug: nil,
-               type: "file", path: "~/.gemini/tmp/*", match: nil,
-               activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 45),
-        Source(name: "Cursor", displayName: "Cursor", folderSlug: nil, type: "file",
-               path: "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb",
-               match: nil, activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 45),
-        Source(name: "Ollama", displayName: "Ollama", folderSlug: nil, type: "socket", path: nil, match: "ollama runner",
+        Source(name: "Ollama", displayName: "Ollama", folderSlug: nil,
+               type: "socket", path: nil, match: "ollama runner",
                activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0),
         Source(name: "LM Studio", displayName: "LM Studio", folderSlug: nil,
                type: "logPattern", path: "~/.lmstudio/server-logs/*/*.log", match: nil,
@@ -742,16 +819,30 @@ Then open StayUp Settings -> Advanced -> Refresh and tick the source.
     ]
 
     private static let reportedSources: [Source] = [
-        Source(name: "Claude", displayName: "Claude Code CLI", folderSlug: nil, type: "reported",
+        Source(name: "Claude", displayName: "Claude", folderSlug: nil, type: "reported",
                path: nil, match: nil, activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0),
-        Source(name: "Codex", displayName: "Codex CLI", folderSlug: nil, type: "reported",
+        Source(name: "Codex", displayName: "Codex", folderSlug: nil, type: "reported",
+               path: nil, match: nil, activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0),
+        Source(name: "Cursor", displayName: "Cursor", folderSlug: nil, type: "reported",
                path: nil, match: nil, activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0),
     ]
+
+    private static func publicDisplayName(for source: Source) -> String {
+        switch source.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "claude": return "Claude"
+        case "codex": return "Codex"
+        case "cursor": return "Cursor"
+        case "ollama": return "Ollama"
+        case "lm studio": return "LM Studio"
+        default:
+            return source.displayName?.isEmpty == false ? source.displayName! : source.name
+        }
+    }
 
     private static var reportedSourceInfos: [ConfiguredSourceInfo] {
         reportedSources.map {
             ConfiguredSourceInfo(key: $0.name,
-                                 displayName: $0.displayName ?? $0.name,
+                                 displayName: publicDisplayName(for: $0),
                                  type: $0.type,
                                  method: "reported",
                                  folderSlug: slug(for: $0.name, displayName: $0.displayName),

@@ -46,49 +46,76 @@ enum ActivitySourceHookInstaller {
         let slug: String
         let displayName: String
         let sourceKey: String
+        let transcriptFolders: [String]
     }
 
     private static let claudeSource = BuiltInSource(
         name: "Claude",
         slug: "claude-code-cli",
-        displayName: "Claude Code CLI",
-        sourceKey: "Claude"
+        displayName: "Claude",
+        sourceKey: "Claude",
+        transcriptFolders: [".claude"]
     )
 
     private static let codexSource = BuiltInSource(
         name: "Codex",
         slug: "codex-cli",
-        displayName: "Codex CLI",
-        sourceKey: "Codex"
+        displayName: "Codex",
+        sourceKey: "Codex",
+        transcriptFolders: [".codex"]
     )
+
+    private static let cursorSource = BuiltInSource(
+        name: "Cursor",
+        slug: "cursor",
+        displayName: "Cursor",
+        sourceKey: "Cursor",
+        transcriptFolders: [".cursor"]
+    )
+
+    private static let managedSources = [claudeSource, codexSource, cursorSource]
 
     /// Claude event → state argument passed to the script. See the contract.
     static let eventStates: [(event: String, state: String)] = [
         ("UserPromptSubmit", "turn-start"),   // resets the tool-in-flight counter
         ("PreToolUse",       "tool-begin"),   // +1 tool in flight
         ("PostToolUse",      "tool-end"),     // -1 tool in flight
-        ("SubagentStop",     "active"),
-        ("SessionStart",     "active"),
+        ("SessionStart",     "waiting"),   // visible, but startup/recap is not real work
         ("Notification",     "waiting"),
         ("Stop",             "waiting"),   // turn done → "waiting on you" (stays visible), NOT removed
         ("SessionEnd",       "stop"),      // session actually over → remove the marker
     ]
+    /// Events StayUp used to manage for Claude but no longer trusts. Keep this
+    /// list so reconnect/repair removes stale StayUp entries without touching
+    /// unrelated user hooks on those events.
+    private static let retiredClaudeEvents = ["SubagentStop"]
 
-    /// Codex CLI event → state argument passed to the script. The command shape
-    /// stays compatible with existing trusted hook entries, but the deployed
-    /// script normalizes Codex `tool-begin` / `tool-end` to plain `active`
-    /// heartbeats because Codex tool-end hooks are not a reliable paired
-    /// in-flight counter in every Codex surface. Codex currently has no
-    /// SessionEnd hook, and its process may be long-lived/shared, so Stop
-    /// removes the marker instead of leaving a stale waiting session behind.
+    /// Codex event → state argument passed to the script. Tool events are
+    /// mapped to real in-flight markers so a long shell command/build cannot
+    /// age past the active-heartbeat ceiling; `Stop` removes the turn receipt.
     static let codexEventStates: [(event: String, state: String)] = [
         ("SessionStart",      "waiting"),     // visible but not protecting
         ("UserPromptSubmit",  "turn-start"),  // fresh turn + clear leaked tools
-        ("PreToolUse",        "tool-begin"),  // script treats Codex as active heartbeat
-        ("PostToolUse",       "tool-end"),    // script treats Codex as active heartbeat
+        ("PreToolUse",        "tool-begin"),  // long tools stay protected until they finish
+        ("PostToolUse",       "tool-end"),    // remove the matching in-flight marker
         ("SubagentStart",     "active"),
         ("SubagentStop",      "active"),
         ("Stop",              "stop"),        // turn done → remove; Codex has no SessionEnd cleanup
+    ]
+
+    /// Cursor event → state argument passed to the script. Cursor's public hook
+    /// schema uses lower-camel event names and a flat hook array in
+    /// `~/.cursor/hooks.json`, so install/uninstall uses a separate merge path.
+    static let cursorEventStates: [(event: String, state: String)] = [
+        ("sessionStart",       "waiting"),
+        ("beforeSubmitPrompt", "turn-start"),
+        ("preToolUse",         "tool-begin"),
+        ("postToolUse",        "tool-end"),
+        ("postToolUseFailure", "tool-end"),
+        ("subagentStart",      "active"),
+        ("subagentStop",       "active"),
+        ("stop",               "stop"),
+        ("sessionEnd",         "stop"),
     ]
 
     // MARK: - Default locations (production)
@@ -96,6 +123,7 @@ enum ActivitySourceHookInstaller {
     private static var home: URL { FileManager.default.homeDirectoryForCurrentUser }
     static var settingsURL: URL { home.appendingPathComponent(".claude/settings.json") }
     static var codexHooksURL: URL { home.appendingPathComponent(".codex/hooks.json") }
+    static var cursorHooksURL: URL { home.appendingPathComponent(".cursor/hooks.json") }
     static var scriptDestURL: URL { home.appendingPathComponent(".stayup/bin/stayup-source-hook.sh") }
 
     /// The bundled source script copied in at build time (see build.sh).
@@ -109,7 +137,8 @@ enum ActivitySourceHookInstaller {
     static func isInstalled(onlyEnabled: Bool = false) -> Bool {
         let claudeOK = wants(claudeSource, onlyEnabled: onlyEnabled) ? isClaudeInstalled() : true
         let codexOK = wants(codexSource, onlyEnabled: onlyEnabled) ? isCodexInstalled() : true
-        return claudeOK && codexOK
+        let cursorOK = wants(cursorSource, onlyEnabled: onlyEnabled) ? isCursorInstalled() : true
+        return claudeOK && codexOK && cursorOK
     }
 
     static func missingHookDisplayNames(onlyEnabled: Bool = false) -> [String] {
@@ -119,6 +148,9 @@ enum ActivitySourceHookInstaller {
         }
         if wants(codexSource, onlyEnabled: onlyEnabled), !isCodexInstalled() {
             missing.append(codexSource.displayName)
+        }
+        if wants(cursorSource, onlyEnabled: onlyEnabled), !isCursorInstalled() {
+            missing.append(cursorSource.displayName)
         }
         return missing
     }
@@ -130,16 +162,27 @@ enum ActivitySourceHookInstaller {
             return isClaudeInstalled()
         case codexSource.sourceKey:
             return isCodexInstalled()
+        case cursorSource.sourceKey:
+            return isCursorInstalled()
         default:
             return false
         }
+    }
+
+    static func canManageHooks(for sourceKey: String) -> Bool {
+        builtInSource(named: sourceKey) != nil
+    }
+
+    static func deployReusableHookScript() throws {
+        guard let src = bundledScriptURL else { throw InstallError.scriptSourceMissing }
+        try deployScript(from: src, to: scriptDestURL)
     }
 
     // MARK: - Public API (production wrappers)
 
     static func install(onlyEnabled: Bool = false) throws {
         guard let src = bundledScriptURL else { throw InstallError.scriptSourceMissing }
-        if wants(claudeSource, onlyEnabled: onlyEnabled) || wants(codexSource, onlyEnabled: onlyEnabled) {
+        if managedSources.contains(where: { wants($0, onlyEnabled: onlyEnabled) }) {
             try deployScript(from: src, to: scriptDestURL)
         }
         var failures: [String] = []
@@ -157,6 +200,13 @@ enum ActivitySourceHookInstaller {
                 failures.append("\(codexSource.displayName): \(error)")
             }
         }
+        if wants(cursorSource, onlyEnabled: onlyEnabled) {
+            do {
+                try installCursor(scriptDest: scriptDestURL, hooksFile: cursorHooksURL)
+            } catch {
+                failures.append("\(cursorSource.displayName): \(error)")
+            }
+        }
         if !failures.isEmpty {
             throw InstallError.sourceFailures(failures)
         }
@@ -171,6 +221,8 @@ enum ActivitySourceHookInstaller {
             try install(scriptSource: src, scriptDest: scriptDestURL, settings: settingsURL)
         case codexSource.sourceKey:
             try installCodex(scriptDest: scriptDestURL, hooksFile: codexHooksURL)
+        case cursorSource.sourceKey:
+            try installCursor(scriptDest: scriptDestURL, hooksFile: cursorHooksURL)
         default:
             return
         }
@@ -179,6 +231,7 @@ enum ActivitySourceHookInstaller {
     static func uninstall() throws {
         try uninstall(settings: settingsURL)
         try uninstallCodex(hooksFile: codexHooksURL)
+        try uninstallCursor(hooksFile: cursorHooksURL)
     }
 
     static func disableSource(named sourceKey: String, folderSlug: String) throws {
@@ -196,11 +249,14 @@ enum ActivitySourceHookInstaller {
 
     static func cleanupHooks(for sourceKey: String) throws {
         guard let source = builtInSource(named: sourceKey) else { return }
+        try disableSource(named: source.sourceKey, folderSlug: source.slug)
         switch source.sourceKey {
         case claudeSource.sourceKey:
             try uninstall(settings: settingsURL)
         case codexSource.sourceKey:
             try uninstallCodex(hooksFile: codexHooksURL)
+        case cursorSource.sourceKey:
+            try uninstallCursor(hooksFile: cursorHooksURL)
         default:
             return
         }
@@ -213,7 +269,7 @@ enum ActivitySourceHookInstaller {
     /// periodic timer). Best-effort — never throws.
     static func repairIfNeeded() {
         guard Settings.autoSourceEnabled else { return }
-        guard wants(claudeSource, onlyEnabled: true) || wants(codexSource, onlyEnabled: true) else { return }
+        guard managedSources.contains(where: { wants($0, onlyEnabled: true) }) else { return }
         guard Settings.reportedHookConnectionAllowed || isInstalled(onlyEnabled: true) else { return }
         // Reinstall when our hooks are missing OR the deployed script itself was
         // deleted — isInstalled() only inspects settings.json, not the file on
@@ -222,7 +278,8 @@ enum ActivitySourceHookInstaller {
         let scriptMissing = !FileManager.default.fileExists(atPath: scriptDestURL.path)
         let wrapperMissing =
             (wants(claudeSource, onlyEnabled: true) && !FileManager.default.fileExists(atPath: wrapperURL(for: claudeSource, scriptDest: scriptDestURL).path)) ||
-            (wants(codexSource, onlyEnabled: true) && !FileManager.default.fileExists(atPath: wrapperURL(for: codexSource, scriptDest: scriptDestURL).path))
+            (wants(codexSource, onlyEnabled: true) && !FileManager.default.fileExists(atPath: wrapperURL(for: codexSource, scriptDest: scriptDestURL).path)) ||
+            (wants(cursorSource, onlyEnabled: true) && !FileManager.default.fileExists(atPath: wrapperURL(for: cursorSource, scriptDest: scriptDestURL).path))
         guard !isInstalled(onlyEnabled: true) || scriptMissing || wrapperMissing else { return }
         try? install(onlyEnabled: true)
     }
@@ -233,10 +290,34 @@ enum ActivitySourceHookInstaller {
     /// on. No-op otherwise. Best-effort — never throws.
     static func redeployScriptIfNeeded() {
         guard Settings.autoSourceEnabled, let src = bundledScriptURL else { return }
-        guard Settings.reportedHookConnectionAllowed || isInstalled(onlyEnabled: true) else { return }
+        guard Settings.reportedHookConnectionAllowed
+            || isInstalled(onlyEnabled: true)
+            || hasEnabledReportedSource()
+        else { return }
         try? deployScript(from: src, to: scriptDestURL)
         if wants(claudeSource, onlyEnabled: true) { try? deployWrapper(for: claudeSource, scriptDest: scriptDestURL) }
         if wants(codexSource, onlyEnabled: true) { try? deployWrapper(for: codexSource, scriptDest: scriptDestURL) }
+        if wants(cursorSource, onlyEnabled: true) { try? deployWrapper(for: cursorSource, scriptDest: scriptDestURL) }
+    }
+
+    private static func hasEnabledReportedSource() -> Bool {
+        let sourcesDir = home.appendingPathComponent(".stayup/sources", isDirectory: true)
+        guard let sourceDirs = try? FileManager.default.contentsOfDirectory(
+            at: sourcesDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return false }
+
+        for dir in sourceDirs {
+            let sourceURL = dir.appendingPathComponent("source.json")
+            guard let data = try? Data(contentsOf: sourceURL),
+                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let name = dict["name"] as? String
+            else { continue }
+            let method = (dict["method"] as? String) ?? (dict["type"] as? String) ?? ""
+            if method == "reported" && Settings.isSourceEnabled(name) { return true }
+        }
+        return false
     }
 
     // MARK: - Core (path-injectable for tests)
@@ -250,6 +331,12 @@ enum ActivitySourceHookInstaller {
         var hooks = (root["hooks"] as? [String: Any]) ?? [:]
 
         let command = hookCommandBase(for: claudeSource, scriptDest: scriptDest)
+        for event in retiredClaudeEvents {
+            guard var groups = hooks[event] as? [[String: Any]] else { continue }
+            groups = removingOurHooks(from: groups)
+            if groups.isEmpty { hooks.removeValue(forKey: event) }
+            else { hooks[event] = groups }
+        }
         for es in eventStates {
             var groups = (hooks[es.event] as? [[String: Any]]) ?? []
             groups = removingOurHooks(from: groups)               // drop any prior StayUp entry
@@ -277,15 +364,33 @@ enum ActivitySourceHookInstaller {
         try writeSettings(root, to: hooksFile)
     }
 
+    static func installCursor(scriptDest: URL, hooksFile: URL) throws {
+        try deployWrapper(for: cursorSource, scriptDest: scriptDest)
+
+        var root = try readSettings(at: hooksFile)
+        if root["version"] == nil { root["version"] = 1 }
+        var hooks = (root["hooks"] as? [String: Any]) ?? [:]
+
+        let commandBase = hookCommandBase(for: cursorSource, scriptDest: scriptDest)
+        for es in cursorEventStates {
+            var items = (hooks[es.event] as? [[String: Any]]) ?? []
+            items = removingOurFlatHooks(from: items)
+            items.append(["command": "\(commandBase) \(es.state)"])
+            hooks[es.event] = items
+        }
+        root["hooks"] = hooks
+        try writeSettings(root, to: hooksFile)
+    }
+
     /// Remove only our hook entries; leave everything else (and the script) intact.
     static func uninstall(settings: URL) throws {
         var root = try readSettings(at: settings)
         guard var hooks = root["hooks"] as? [String: Any] else { return }
-        for es in eventStates {
-            guard var groups = hooks[es.event] as? [[String: Any]] else { continue }
+        for event in eventStates.map(\.event) + retiredClaudeEvents {
+            guard var groups = hooks[event] as? [[String: Any]] else { continue }
             groups = removingOurHooks(from: groups)
-            if groups.isEmpty { hooks.removeValue(forKey: es.event) }
-            else { hooks[es.event] = groups }
+            if groups.isEmpty { hooks.removeValue(forKey: event) }
+            else { hooks[event] = groups }
         }
         if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
         try writeSettings(root, to: settings)
@@ -304,6 +409,19 @@ enum ActivitySourceHookInstaller {
         try writeSettings(root, to: hooksFile)
     }
 
+    static func uninstallCursor(hooksFile: URL) throws {
+        var root = try readSettings(at: hooksFile)
+        guard var hooks = root["hooks"] as? [String: Any] else { return }
+        for es in cursorEventStates {
+            guard var items = hooks[es.event] as? [[String: Any]] else { continue }
+            items = removingOurFlatHooks(from: items)
+            if items.isEmpty { hooks.removeValue(forKey: es.event) }
+            else { hooks[es.event] = items }
+        }
+        if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
+        try writeSettings(root, to: hooksFile)
+    }
+
     // MARK: - Helpers
 
     private static func ourGroup(command: String) -> [String: Any] {
@@ -314,7 +432,7 @@ enum ActivitySourceHookInstaller {
         guard let root = try? readSettings(at: settingsURL),
               let hooks = root["hooks"] as? [String: Any] else { return false }
         let commandBase = hookCommandBase(for: claudeSource, scriptDest: scriptDestURL)
-        return eventStates.allSatisfy { es in
+        let currentHooksInstalled = eventStates.allSatisfy { es in
             guard let groups = hooks[es.event] as? [[String: Any]] else { return false }
             let want = "\(commandBase) \(es.state)"
             return groups.contains { g in
@@ -322,6 +440,11 @@ enum ActivitySourceHookInstaller {
                     .contains { ($0["command"] as? String) == want } == true
             }
         }
+        let retiredHooksGone = retiredClaudeEvents.allSatisfy { event in
+            guard let groups = hooks[event] as? [[String: Any]] else { return true }
+            return !groupsContainOurHooks(groups)
+        }
+        return currentHooksInstalled && retiredHooksGone
     }
 
     private static func isCodexInstalled() -> Bool {
@@ -335,6 +458,17 @@ enum ActivitySourceHookInstaller {
                 (g["hooks"] as? [[String: Any]])?
                     .contains { ($0["command"] as? String) == want } == true
             }
+        }
+    }
+
+    private static func isCursorInstalled() -> Bool {
+        guard let root = try? readSettings(at: cursorHooksURL),
+              let hooks = root["hooks"] as? [String: Any] else { return false }
+        let commandBase = hookCommandBase(for: cursorSource, scriptDest: scriptDestURL)
+        return cursorEventStates.allSatisfy { es in
+            guard let items = hooks[es.event] as? [[String: Any]] else { return false }
+            let want = "\(commandBase) \(es.state)"
+            return items.contains { ($0["command"] as? String) == want }
         }
     }
 
@@ -370,15 +504,39 @@ enum ActivitySourceHookInstaller {
     }
 
     private static func wrapperContents(for source: BuiltInSource, scriptDest: URL) -> String {
-        [
+        let transcriptPrefixes = source.transcriptFolders
+            .map(transcriptPrefix(for:))
+            .joined(separator: ":")
+        var lines = [
             shellAssignment("STAYUP_SOURCE_NAME", source.name),
             shellAssignment("STAYUP_SOURCE_SLUG", source.slug),
             shellAssignment("STAYUP_SOURCE_DISPLAY", source.displayName),
             shellAssignment("STAYUP_SOURCE_KEY", source.sourceKey),
-            "export STAYUP_SOURCE_NAME STAYUP_SOURCE_SLUG STAYUP_SOURCE_DISPLAY STAYUP_SOURCE_KEY",
+        ]
+        var exported = [
+            "STAYUP_SOURCE_NAME",
+            "STAYUP_SOURCE_SLUG",
+            "STAYUP_SOURCE_DISPLAY",
+            "STAYUP_SOURCE_KEY",
+        ]
+        if !transcriptPrefixes.isEmpty {
+            lines.append(shellAssignment("STAYUP_SOURCE_TRANSCRIPT_PREFIXES", transcriptPrefixes))
+            exported.append("STAYUP_SOURCE_TRANSCRIPT_PREFIXES")
+        }
+        lines.append(contentsOf: [
+            "export \(exported.joined(separator: " "))",
             "exec \(shellQuote(scriptDest.path)) \"$@\"",
             ""
-        ].joined(separator: "\n")
+        ])
+        return lines.joined(separator: "\n")
+    }
+
+    private static func transcriptPrefix(for folder: String) -> String {
+        let path = home
+            .appendingPathComponent(folder, isDirectory: true)
+            .standardizedFileURL
+            .path
+        return path.hasSuffix("/") ? path : "\(path)/"
     }
 
     private static func shellAssignment(_ key: String, _ value: String) -> String {
@@ -400,6 +558,23 @@ enum ActivitySourceHookInstaller {
             var keptGroup = group
             keptGroup["hooks"] = keptHookItems
             return keptGroup
+        }
+    }
+
+    private static func groupsContainOurHooks(_ groups: [[String: Any]]) -> Bool {
+        groups.contains { group in
+            guard let hookItems = group["hooks"] as? [[String: Any]] else { return false }
+            return hookItems.contains {
+                guard let command = $0["command"] as? String else { return false }
+                return command.contains(marker)
+            }
+        }
+    }
+
+    private static func removingOurFlatHooks(from items: [[String: Any]]) -> [[String: Any]] {
+        items.filter {
+            guard let command = $0["command"] as? String else { return true }
+            return !command.contains(marker)
         }
     }
 
@@ -471,6 +646,8 @@ enum ActivitySourceHookInstaller {
             legacyName = "stayup-source-hook-claude.sh"
         case codexSource.sourceKey:
             legacyName = "stayup-source-hook-codex.sh"
+        case cursorSource.sourceKey:
+            legacyName = "stayup-source-hook-cursor-agent.sh"
         default:
             return
         }
@@ -482,7 +659,7 @@ enum ActivitySourceHookInstaller {
 
     private static func builtInSource(named sourceKey: String) -> BuiltInSource? {
         let key = sourceKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return [claudeSource, codexSource].first {
+        return managedSources.first {
             key == $0.sourceKey.lowercased() || key == $0.name.lowercased()
         }
     }

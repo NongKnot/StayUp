@@ -239,7 +239,7 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         // `SUEnableAutomaticChecks` absent in UserDefaults, so Sparkle's
         // own second-launch opt-in prompt still fires — that's the
         // intentional fallback path documented in `SparkleUpdater.swift`.
-        SparkleUpdater.shared.automaticChecksEnabled = (updateCheck.state == .on)
+        SparkleUpdater.shared.setAutomaticChecksEnabledFromUserAction(updateCheck.state == .on)
     }
 
     @objc private func helperPressed() {
