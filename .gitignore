@@ -7,23 +7,26 @@ dist/
 # macOS Finder metadata.
 .DS_Store
 
-# Local assistant/editor scratch state.
+# Local assistant/editor scratch state and restored private context.
 .claude/
 .cursor/
 .mcp.json
+.git.worktree-pointer-*
 AGENTS.md
 AUTHORS.md
+BRAND.md
 CHANGELOG.md
 CLAUDE.md
 CLAUDE.local.md
 CONTRIBUTING.md
 
-# Local publishing/workshop folders.
+# Local publishing, strategy, and workshop folders.
 .github/
 launch/
 site/
 image/
 docs/
+docs/adr/
 *.local.md
 .env
 .env.*
@@ -46,6 +49,7 @@ assets/readme-ducks.png
 assets/repo-social-preview.png
 tools/make-dmg-bg.sh
 tools/make-icon.sh
+tools/make-og.sh
 tools/make-readme-art.sh
 tools/make-readme-gif.sh
 tools/make-readme-poses.sh
@@ -54,6 +58,11 @@ tools/preview-skin.swift
 tools/release.sh
 tools/svg-to-skin.swift
 tools/test-hook-installer.sh
+tools/test-auto-detect-integration.sh
+tools/test-activity-source-monitor.sh
+tools/test-codex-app-clean-install.sh
+tools/test-custom-reported-cleanroom.sh
+tools/test-trusted-sources.sh
 tools/test-source-hook.sh
 tools/bench-auto.sh
 tools/bench-mini.sh

@@ -48,6 +48,18 @@ import json, os, sys, time
 
 ONCE = (len(sys.argv) > 1 and sys.argv[1] == "once")
 STATUS = os.path.expanduser("~/.stayup/status.json")
+SOURCE_LABELS = {
+    "Claude": "Claude",
+    "Claude Code CLI": "Claude",
+    "Codex": "Codex",
+    "Codex CLI": "Codex",
+    "Cursor": "Cursor",
+    "Ollama": "Ollama",
+    "LM Studio": "LM Studio",
+}
+
+def source_label(name):
+    return SOURCE_LABELS.get(name, name)
 
 def adot(a):
     if a.get("external"): return "🟢" if a.get("working") else "○"
@@ -78,7 +90,8 @@ def render():
     dd = "TRIGGERED" if s.get("dontDieTriggered") else (f"armed ({s.get('dontDiePct')}%)" if s.get("dontDieEnabled") else "off")
     print(f"Power: {s.get('power','?')}{bats}    Don't Die: {dd}")
     L = lambda k: "●" if s.get(k) else "○"
-    print(f"Layers: caffeinate {L('caffeinate')} · sleep {L('sleep')} · lid {L('lid')} · vdisplay {L('virtualDisplay')} · helper {L('helper')}")
+    pmset = L("sleepDisabled") if "sleepDisabled" in s else "?"
+    print(f"Layers: caffeinate {L('caffeinate')} · sleep {L('sleep')} · lid {L('lid')} · vdisplay {L('virtualDisplay')} · helper {L('helper')} · pmset {pmset}")
     if s.get("walking"):
         w = s.get("walkSecs", 0); print(f"Walk: 🚶 {w//60}:{w%60:02d} · {s.get('walkSteps',0)} steps")
     print("─" * 52)
@@ -93,7 +106,8 @@ def render():
         if "tokens" in a: line += f" · {toks(a['tokens'])} tok"
         if a.get("proof"): line += f" · {a['proof']}"
         print(line)
-    print("Sources on: " + (", ".join(s.get("enabledSources", [])) or "none"))
+    enabled = [source_label(x) for x in s.get("enabledSources", [])]
+    print("Sources on: " + (", ".join(enabled) or "none"))
     print("─" * 52)
     sys.stdout.flush()
 

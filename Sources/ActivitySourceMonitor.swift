@@ -21,6 +21,16 @@ struct ActivitySourceSession {
         case "Apple_Terminal":      app = "Terminal"
         case "iTerm.app":           app = "iTerm"
         case "vscode":              app = "VS Code"
+        case "Claude", "Claude Code CLI":
+            app = "Claude"
+        case "Codex", "Codex CLI":
+            app = "Codex"
+        case "Cursor":
+            app = "Cursor"
+        case "Ollama":
+            app = "Ollama"
+        case "LM Studio":
+            app = "LM Studio"
         case .some(let t) where !t.isEmpty: app = Self.clean(t)
         default:                    app = "Local app"
         }
@@ -115,10 +125,11 @@ final class ActivitySourceMonitor {
     /// awake forever. Matches the contract's staleness ceiling.
     private static let STALE_CEILING: TimeInterval = 15 * 60
 
-    /// Poll cadence for re-evaluation (expiring an aged-out session — no fs
-    /// event fires when a present marker merely crosses a TTL). Fine-grained
-    /// enough against minute-scale TTLs and effectively free.
-    private static let POLL_SECS: TimeInterval = 5
+    /// Poll cadence for re-evaluation. Auto should notice a new reported
+    /// connector heartbeat quickly after the user has already turned Auto on,
+    /// and no filesystem event fires when a present marker merely crosses a
+    /// TTL. The scan is tiny and runs only in Auto mode.
+    private static let POLL_SECS: TimeInterval = 1
 
     private let sourcesDir: URL
     private let queue = DispatchQueue(label: "app.getstayup.sourcemonitor")
@@ -255,9 +266,9 @@ final class ActivitySourceMonitor {
 
                 let vals = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
                 if vals?.isDirectory == true && entry.lastPathComponent.hasSuffix(".tools") {
-                    pruneToolMarkers(in: entry, now: now)
                     let markerPath = String(entry.path.dropLast(".tools".count))
                     let markerURL = URL(fileURLWithPath: markerPath)
+                    pruneToolMarkers(in: entry)
                     if !FileManager.default.fileExists(atPath: markerURL.path)
                         || shouldPruneMarker(markerURL, now: now) {
                         try? FileManager.default.removeItem(at: entry)
@@ -277,23 +288,18 @@ final class ActivitySourceMonitor {
         }
     }
 
-    private func pruneToolMarkers(in toolsDir: URL, now: Date) {
+    private func pruneToolMarkers(in toolsDir: URL) {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: toolsDir,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey],
             options: []
         ) else { return }
 
         for entry in entries {
-            guard let vals = try? entry.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
-                  vals.isRegularFile == true,
-                  let mtime = vals.contentModificationDate
-            else {
+            guard let vals = try? entry.resourceValues(forKeys: [.isRegularFileKey]),
+                  vals.isRegularFile == true else {
                 try? FileManager.default.removeItem(at: entry)
                 continue
-            }
-            if now.timeIntervalSince(mtime) >= Self.STALE_CEILING {
-                try? FileManager.default.removeItem(at: entry)
             }
         }
     }
@@ -307,8 +313,12 @@ final class ActivitySourceMonitor {
         guard vals?.isRegularFile == true, let mtime = vals?.contentModificationDate else { return false }
         let age = now.timeIntervalSince(mtime)
 
-        guard workingState(url) != nil else { return age > Self.STALE_CEILING }
-        if let pid = pidOf(url), pid > 0 {
+        guard let state = workingState(url) else { return age > Self.STALE_CEILING }
+        if state == "waiting" {
+            if let pid = pidOf(url), pid > 0 { return !Self.pidAlive(pid) }
+            return age > Self.STALE_CEILING
+        }
+        if toolCount(url) > 0, let pid = pidOf(url), pid > 0 {
             return !Self.pidAlive(pid)
         }
         return age > Self.STALE_CEILING
@@ -349,8 +359,9 @@ final class ActivitySourceMonitor {
     /// grace in MenuController decides how long to linger before the Mac may
     /// sleep.
     ///
-    /// Leaked tool markers are also capped by the staleness ceiling; a missed
-    /// tool-end must not pin Auto forever just because the app process stayed up.
+    /// Tool markers are not capped by mtime: a long build can run quietly for
+    /// longer than the staleness ceiling. Leaks are cleaned by `waiting`,
+    /// `stop`, `turn-start`, or by pruning the owning marker when its pid dies.
     private func isWorking(_ url: URL, now: Date) -> Bool {
         let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
         guard vals?.isRegularFile == true, let mtime = vals?.contentModificationDate else { return false }
@@ -373,7 +384,7 @@ final class ActivitySourceMonitor {
         //   • no tool (thinking) → held while the process is alive AND the marker
         //     is fresh; a stale active marker (an Esc'd turn that fired no Stop)
         //     ages out on the staleness ceiling so it can't pin the Mac forever.
-        if toolCount(url, now: now) > 0 {
+        if toolCount(url) > 0 {
             if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) }
             return age < Self.STALE_CEILING
         }
@@ -416,20 +427,17 @@ final class ActivitySourceMonitor {
 
     /// Number of tools currently in flight for a session — files in the sibling
     /// `<marker>.tools/` directory (PreToolUse adds, PostToolUse removes).
-    private func toolCount(_ markerURL: URL, now: Date) -> Int {
+    private func toolCount(_ markerURL: URL) -> Int {
         let toolsURL = URL(fileURLWithPath: markerURL.path + ".tools", isDirectory: true)
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: toolsURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else { return 0 }
 
         return entries.filter { url in
-            guard let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
-                  vals.isRegularFile == true,
-                  let mtime = vals.contentModificationDate
-            else { return false }
-            return now.timeIntervalSince(mtime) < Self.STALE_CEILING
+            guard let vals = try? url.resourceValues(forKeys: [.isRegularFileKey]) else { return false }
+            return vals.isRegularFile == true
         }.count
     }
 
@@ -455,9 +463,19 @@ final class ActivitySourceMonitor {
     private func isLive(_ url: URL, now: Date) -> Bool {
         let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
         guard vals?.isRegularFile == true, let mtime = vals?.contentModificationDate else { return false }
-        guard workingState(url) != nil else { return false }
-        if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) }
-        return now.timeIntervalSince(mtime) < Self.STALE_CEILING
+        guard let state = workingState(url) else { return false }
+        let age = now.timeIntervalSince(mtime)
+        if state == "waiting" {
+            if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) }
+            return age < Self.STALE_CEILING
+        }
+        if isExternalMarker(url) { return age < Self.STALE_CEILING }
+        if toolCount(url) > 0 {
+            if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) }
+            return age < Self.STALE_CEILING
+        }
+        if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) && age < Self.STALE_CEILING }
+        return age < Self.STALE_CEILING
     }
 
     private func parseSession(_ url: URL, working: Bool, now: Date) -> ActivitySourceSession {
@@ -484,7 +502,7 @@ final class ActivitySourceMonitor {
                 }
             }
         }
-        let visibleToolCount = working && state != "waiting" ? toolCount(url, now: now) : 0
+        let visibleToolCount = working && state != "waiting" ? toolCount(url) : 0
         return ActivitySourceSession(id: url.lastPathComponent, state: state,
                             cwd: cwd, terminal: term, transcriptPath: tx,
                             signal: signal, detail: detail, mtime: mtime,
