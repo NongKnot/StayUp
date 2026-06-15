@@ -57,8 +57,10 @@ it's relevant context:
     "Feed Duck" in Settings → About.
   - Signed update checks — opt-in only from Welcome, Settings, or
     Sparkle's second-launch prompt; users can also manually check for
-    updates. Update payloads are EdDSA-signed so a compromised CDN
-    can't ship a backdoored DMG.
+    updates. Enabling automatic checks from StayUp starts one immediate
+    background check so an available signed update can surface right away.
+    Update payloads are EdDSA-signed so a compromised CDN can't ship a
+    backdoored DMG.
 - **Auto mode** reads local Activity Source files only: it watches
   `~/.stayup/sources/<source>/source.json` recipes and
   `~/.stayup/sources/<source>/active/` receipts, optionally parses
