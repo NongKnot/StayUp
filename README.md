@@ -75,7 +75,8 @@ First setup has a few macOS prompts:
 - **Welcome window:** Launch at Login, Helper setup, update preference.
 - **Helper setup:** macOS approval plus one password prompt. This is the
   lid-closed-on-battery part.
-- **Sparkle updates:** optional signed updates from `getstayup.app/appcast.xml`.
+- **Sparkle updates:** optional signed automatic updates. Turn them on and Duck
+  checks once right away; manual Check Now is always there.
 
 No Helper, no hard-case promise. Duck is bold, not fake.
 
