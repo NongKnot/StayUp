@@ -1255,7 +1255,7 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
         }
     }
     @objc private func autoUpdateToggled() {
-        SparkleUpdater.shared.automaticChecksEnabled = (autoUpdateCheck.state == .on)
+        SparkleUpdater.shared.setAutomaticChecksEnabledFromUserAction(autoUpdateCheck.state == .on)
     }
     @objc private func checkUpdatesNow() {
         SparkleUpdater.shared.checkForUpdatesNow()
