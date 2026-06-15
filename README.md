@@ -68,14 +68,15 @@ humility. Duck remains up.
 
 ### Normies Way ✨
 
-Download StayUp from [getstayup.app](https://getstayup.app).
+Download StayUp from [getstayup.app/download](https://getstayup.app/download).
 
 First setup has a few macOS prompts:
 
 - **Welcome window:** Launch at Login, Helper setup, update preference.
 - **Helper setup:** macOS approval plus one password prompt. This is the
   lid-closed-on-battery part.
-- **Sparkle updates:** optional signed updates from `getstayup.app/appcast.xml`.
+- **Sparkle updates:** optional signed automatic updates. Turn them on and Duck
+  checks once right away; manual Check Now is always there.
 
 No Helper, no hard-case promise. Duck is bold, not fake.
 
@@ -103,6 +104,15 @@ bash build.sh
 cp -R StayUp.app /Applications/
 open /Applications/StayUp.app
 ```
+
+For a notarized local build:
+
+```bash
+bash build.sh notarize
+```
+
+That needs a Developer ID certificate and a configured `notarytool` keychain
+profile.
 
 For the real StayUp setup:
 
