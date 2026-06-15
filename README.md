@@ -68,7 +68,7 @@ humility. Duck remains up.
 
 ### Normies Way ✨
 
-Download StayUp from [getstayup.app/download](https://getstayup.app/download).
+Download StayUp from [getstayup.app](https://getstayup.app).
 
 First setup has a few macOS prompts:
 
@@ -104,15 +104,6 @@ bash build.sh
 cp -R StayUp.app /Applications/
 open /Applications/StayUp.app
 ```
-
-For a notarized local build:
-
-```bash
-bash build.sh notarize
-```
-
-That needs a Developer ID certificate and a configured `notarytool` keychain
-profile.
 
 For the real StayUp setup:
 
