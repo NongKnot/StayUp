@@ -41,6 +41,8 @@
 	<true/>
 	<key>SUFeedURL</key>
 	<string>https://getstayup.app/appcast.xml</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 	<key>SUPublicEDKey</key>
 	<string>YFn+QxLC1/ZfVw7jsDJS6e3T5SX2rG0AVcduATzTTBA=</string>
 </dict>
