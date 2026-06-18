@@ -127,6 +127,20 @@ class MenuController: NSObject, NSMenuDelegate {
         if let data = try? JSONSerialization.data(withJSONObject: status, options: [.sortedKeys]) {
             try? data.write(to: url, options: .atomic)
         }
+        lastTickPublishAt = Date()
+    }
+
+    /// status.json is read only by the external tester (tools/stayup.sh); the
+    /// on-screen popover countdown has its own visibility-gated 1s timer and does
+    /// not touch this file. So the per-tick monitor evaluate (POLL_SECS=1) doesn't
+    /// need to rewrite the file + spawn `ioreg` every second for a tester that's
+    /// usually not open. Real state changes call publishStatus() directly and stay
+    /// instant; this only throttles the idle per-tick refresh.
+    // ponytail: 5s tick floor; drop it if a watcher ever needs sub-5s liveness from the file.
+    private var lastTickPublishAt = Date.distantPast
+    private func publishStatusThrottled() {
+        guard Date().timeIntervalSince(lastTickPublishAt) >= 5 else { return }
+        publishStatus()
     }
 
     /// Periodic self-heal for bundled reported-source hooks. Some tools can
@@ -231,7 +245,7 @@ class MenuController: NSObject, NSMenuDelegate {
         sourceMonitor.onChange = { [weak self] working in
             self?.handleActivitySourceChange(working)
         }
-        sourceMonitor.onEvaluate = { [weak self] in self?.publishStatus() }   // live status file
+        sourceMonitor.onEvaluate = { [weak self] in self?.publishStatusThrottled() }   // live status file
         if Settings.autoSourceEnabled { startSourceDetection() }
 
         NSWorkspace.shared.notificationCenter.addObserver(

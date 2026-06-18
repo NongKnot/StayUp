@@ -26,7 +26,25 @@ func runPmset(_ args: [String]) {
     p.waitUntilExit()
 }
 
+// The socket lives in world-traversable /var/run and stays world-connectable so
+// StayUp (running as the logged-in user, not root) can reach it. That alone would
+// let *any* local uid toggle system sleep, so gate on the peer's credentials here:
+// honor only a real interactive user (uid >= 501, what the app runs as) or root,
+// and reject system/service uids and any peer we can't verify. Same-uid callers
+// share the app's own trust domain and can't be distinguished here — and no socket
+// auth could stop them — so this closes exactly the extra exposure the open socket
+// adds (other accounts / system contexts), nothing more. The legit client is always
+// uid >= 501, so this never rejects the real engage/disengage path.
+func peerAllowed(_ fd: Int32) -> Bool {
+    var uid: uid_t = 0
+    var gid: gid_t = 0
+    guard getpeereid(fd, &uid, &gid) == 0 else { return false }
+    return uid == 0 || uid >= 501
+}
+
 func handleClient(_ fd: Int32) {
+    guard peerAllowed(fd) else { close(fd); return }
+
     var buf = [UInt8](repeating: 0, count: 64)
     let n = recv(fd, &buf, 63, 0)
     guard n > 0 else { close(fd); return }
