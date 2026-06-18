@@ -1,0 +1,45 @@
+# Build artifacts
+StayUp.app/
+*_bin
+daemon/app.getstayup.helper
+dist/
+.DS_Store
+
+# Local editor / assistant state
+.claude/
+.cursor/
+.mcp.json
+.wrangler/
+.env
+.env.*
+*.local.md
+
+# Only shipped docs
+*.md
+!README.md
+!SECURITY.md
+
+# Only the two runtime scripts ship from tools/
+tools/*
+!tools/stayup.sh
+!tools/stayup-source-hook.sh
+
+# Only README-referenced art ships from assets/
+assets/*
+!assets/use-case-walk.png
+!assets/use-case-desk.png
+!assets/use-case-auto.png
+!assets/readme-walk.gif
+
+# Local workshop + private context (kept on disk, never published)
+.github/
+docs/
+site/
+launch/
+image/
+Vendor/Sparkle-bin/
+Vendor/SampleAppcast.xml
+
+# Only the built icon ships from Resources/
+Resources/*
+!Resources/AppIcon.icns
