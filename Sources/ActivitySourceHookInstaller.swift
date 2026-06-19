@@ -80,6 +80,10 @@ enum ActivitySourceHookInstaller {
         ("UserPromptSubmit", "turn-start"),   // resets the tool-in-flight counter
         ("PreToolUse",       "tool-begin"),   // +1 tool in flight
         ("PostToolUse",      "tool-end"),     // -1 tool in flight
+        ("PostToolUseFailure", "tool-end"),   // clear in-flight marker after failed/denied tools
+        ("PermissionRequest", "waiting"),     // blocked on human
+        ("PermissionDenied",  "waiting"),     // no local work is running
+        ("StopFailure",       "waiting"),     // API/tool loop failure; release to grace
         ("SessionStart",     "waiting"),   // visible, but startup/recap is not real work
         ("Notification",     "waiting"),
         ("Stop",             "waiting"),   // turn done → "waiting on you" (stays visible), NOT removed
@@ -100,6 +104,9 @@ enum ActivitySourceHookInstaller {
         ("PostToolUse",       "tool-end"),    // remove the matching in-flight marker
         ("SubagentStart",     "active"),
         ("SubagentStop",      "active"),
+        ("PreCompact",        "active"),      // long goals can compact mid-turn
+        ("PostCompact",       "active"),      // refresh after compaction completes
+        ("PermissionRequest",  "waiting"),    // blocked on human; visible, not protecting
         ("Stop",              "stop"),        // turn done → remove; Codex has no SessionEnd cleanup
     ]
 
@@ -114,6 +121,8 @@ enum ActivitySourceHookInstaller {
         ("postToolUseFailure", "tool-end"),
         ("subagentStart",      "active"),
         ("subagentStop",       "active"),
+        ("afterAgentThought",  "active"),
+        ("afterAgentResponse", "waiting"),
         ("stop",               "stop"),
         ("sessionEnd",         "stop"),
     ]

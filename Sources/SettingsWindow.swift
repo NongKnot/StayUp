@@ -854,15 +854,15 @@ Codex CLI / IDE special case:
 - Use Codex's user-level hook config at ~/.codex/hooks.json for hook-capable Codex CLI/IDE surfaces.
 - Use StayUp's canonical source identity so Settings, Delete, Restore Defaults, and built-in hook repair all agree: STAYUP_SOURCE_NAME="Codex", STAYUP_SOURCE_SLUG="codex-cli", STAYUP_SOURCE_DISPLAY="Codex", STAYUP_SOURCE_KEY="Codex".
 - Use a wrapper at ~/.stayup/bin/stayup-source-hook-codex-cli.sh that exports those values plus STAYUP_SOURCE_TRANSCRIPT_PREFIXES="$HOME/.codex/" and execs ~/.stayup/bin/stayup-source-hook.sh "$@".
-- Map Codex events: SessionStart -> waiting, UserPromptSubmit -> turn-start, PreToolUse -> tool-begin, PostToolUse -> tool-end, SubagentStart -> active, SubagentStop -> active, Stop -> stop.
+- Map Codex events: SessionStart -> waiting, UserPromptSubmit -> turn-start, PreToolUse -> tool-begin, PostToolUse -> tool-end, SubagentStart -> active, SubagentStop -> active, PreCompact -> active, PostCompact -> active, PermissionRequest -> waiting, Stop -> stop.
 - Write ~/.stayup/sources/codex-cli/source.json with name Codex, displayName Codex, type reported, method reported.
 - After editing ~/.codex/hooks.json, tell the user to close/reopen Codex CLI/IDE and trust the StayUp hooks via /hooks if Codex asks. Do not create a separate "Codex App" source key.
 
 Cursor special case:
-- Use Cursor's user-level hook config at ~/.cursor/hooks.json. Current Cursor docs say hooks can live in ~/.cursor/hooks.json and expose events including sessionStart, beforeSubmitPrompt, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, stop, and sessionEnd.
+- Use Cursor's user-level hook config at ~/.cursor/hooks.json. Current Cursor docs say hooks can live in ~/.cursor/hooks.json and expose events including sessionStart, beforeSubmitPrompt, preToolUse, postToolUse, postToolUseFailure, subagentStart, subagentStop, afterAgentThought, afterAgentResponse, stop, and sessionEnd.
 - Use StayUp's canonical source identity so Settings, Delete, Restore Defaults, and built-in hook repair all agree: STAYUP_SOURCE_NAME="Cursor", STAYUP_SOURCE_SLUG="cursor", STAYUP_SOURCE_DISPLAY="Cursor", STAYUP_SOURCE_KEY="Cursor".
 - Use a wrapper at ~/.stayup/bin/stayup-source-hook-cursor.sh that exports those values plus STAYUP_SOURCE_TRANSCRIPT_PREFIXES="$HOME/.cursor/" and execs ~/.stayup/bin/stayup-source-hook.sh "$@".
-- Map Cursor events: sessionStart -> waiting, beforeSubmitPrompt -> turn-start, preToolUse -> tool-begin, postToolUse -> tool-end, postToolUseFailure -> tool-end, subagentStart -> active, subagentStop -> active, stop -> stop, sessionEnd -> stop.
+- Map Cursor events: sessionStart -> waiting, beforeSubmitPrompt -> turn-start, preToolUse -> tool-begin, postToolUse -> tool-end, postToolUseFailure -> tool-end, subagentStart -> active, subagentStop -> active, afterAgentThought -> active, afterAgentResponse -> waiting, stop -> stop, sessionEnd -> stop.
 - Write ~/.stayup/sources/cursor/source.json with name Cursor, displayName Cursor, type reported, method reported.
 - After editing ~/.cursor/hooks.json, tell the user to close/reopen Cursor and trust the StayUp hooks if Cursor asks. Do not create a separate "Cursor App" source key.
 

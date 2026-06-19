@@ -20,9 +20,9 @@
 raw_action="${1:-not-working}"
 action=$(printf '%s' "$raw_action" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
 case "$action" in
-    working|work|running|active|busy)
+    working|work|running|active|busy|precompact|postcompact|afteragentthought)
         action="active" ;;
-    not-working|notworking|idle|waiting|wait|done|finished|complete|completed)
+    not-working|notworking|idle|waiting|wait|done|finished|complete|completed|permissionrequest|permissiondenied|stopfailure|afteragentresponse)
         action="waiting" ;;
     stop|stopped|end|ended|session-end|sessionend|off|remove|clear)
         action="stop" ;;
@@ -30,7 +30,7 @@ case "$action" in
         action="turn-start" ;;
     tool-begin|toolbegin|tool-start|toolstart|pretooluse)
         action="tool-begin" ;;
-    tool-end|toolend|tool-stop|toolstop|posttooluse)
+    tool-end|toolend|tool-stop|toolstop|posttooluse|posttoolusefailure)
         action="tool-end" ;;
     *)
         # Unknown states must not accidentally keep the Mac awake.
