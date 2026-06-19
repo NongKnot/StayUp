@@ -125,10 +125,13 @@ final class ActivitySourceMonitor {
     /// awake forever. Matches the contract's staleness ceiling.
     private static let STALE_CEILING: TimeInterval = 15 * 60
 
-    /// Poll cadence for re-evaluation. Auto should notice a new reported
-    /// connector heartbeat quickly after the user has already turned Auto on,
-    /// and no filesystem event fires when a present marker merely crosses a
-    /// TTL. The scan is tiny and runs only in Auto mode.
+    /// Re-evaluation cadence: a plain 1s poll, deliberately NOT file events.
+    /// Heartbeats are silent mtime bumps, and tool/state changes touch a subdir
+    /// or rewrite file contents — none of which a directory vnode reports, so a
+    /// watcher would miss most transitions. The scan is tiny and the timer is
+    /// suspended while the Mac sleeps, so 1Hz costs nothing at rest. (Adaptive
+    /// fast/idle cadence was tried and reverted: it regressed cold-engage for a
+    /// gain that doesn't exist once you account for the sleep-suspended timer.)
     private static let POLL_SECS: TimeInterval = 1
 
     private let sourcesDir: URL
@@ -214,23 +217,12 @@ final class ActivitySourceMonitor {
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
-        let urls = sourceFolders.flatMap {
+        // One physical marker per (source, session-id) already — the path is the
+        // identity, so no dedupe needed. (A name+id "dedupe" only ever risked
+        // hiding a second real session; removed.)
+        return sourceFolders.flatMap {
             markerURLs(in: $0.appendingPathComponent("active", isDirectory: true))
         }
-        return dedupeMarkerURLs(urls)
-    }
-
-    private func dedupeMarkerURLs(_ urls: [URL]) -> [URL] {
-        var best: [String: (url: URL, mtime: Date)] = [:]
-        for url in urls {
-            let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate ?? .distantPast
-            let key = "\(sourceName(for: url))\u{0}\(url.lastPathComponent)"
-            if best[key]?.mtime ?? .distantPast < mtime {
-                best[key] = (url, mtime)
-            }
-        }
-        return best.values.map(\.url)
     }
 
     private func markerURLs(in activeDir: URL) -> [URL] {

@@ -43,3 +43,6 @@ Vendor/SampleAppcast.xml
 # Only the built icon ships from Resources/
 Resources/*
 !Resources/AppIcon.icns
+
+# Local archive of old/outdated StayUp sources + refs (never ships)
+_Parked/
