@@ -35,6 +35,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // (Sparkle prompts on second launch when SUEnableAutomaticChecks
         // is absent from Info.plist).
         _ = SparkleUpdater.shared
+        // Surface an available update on launch for opted-in users: kick one
+        // background check after the menu bar is up. StayUp is a menu-bar agent,
+        // so the updater delegate brings the alert to the front (a scheduled
+        // check would otherwise open behind other windows). No-op + no network
+        // until the user has opted in, so the consent promise holds.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            SparkleUpdater.shared.checkOnLaunchIfEnabled()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -22,17 +22,59 @@ import Sparkle
 /// background checks, but will present its standard update alert if a signed
 /// update is available. This makes opt-in visibly useful without polling before
 /// consent or nagging when there is no release.
+
+/// Brings StayUp to the front the moment Sparkle finds a valid update. StayUp is
+/// a menu-bar agent (`LSUIElement`, no Dock icon), so a *scheduled* background
+/// update alert otherwise opens behind the user's other windows and goes
+/// unnoticed (user-initiated "Check for Updates" already activates the app, so
+/// only the background path needs this nudge). Activating here — before Sparkle
+/// puts up its alert — makes the prompt land in front on launch/restart.
+private final class UpdaterEventDelegate: NSObject, SPUUpdaterDelegate {
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        // macOS blocks a background/menu-bar app (`.accessory`) from stealing
+        // focus, so `activate()` alone leaves the alert behind the foreground
+        // app. Temporarily promote to `.regular` (which gets a Dock icon and is
+        // allowed to come forward), then activate so the update prompt lands in
+        // front on launch. Restored to `.accessory` when the update cycle ends.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func updater(_ updater: SPUUpdater,
+                 didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
+                 error: Error?) {
+        // Drop the temporary Dock icon once the check/prompt is done (user
+        // dismissed, or no update). If they chose Install, the relaunched app
+        // starts fresh as `.accessory` anyway.
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
 final class SparkleUpdater {
     static let shared = SparkleUpdater()
 
+    private let eventDelegate = UpdaterEventDelegate()
     private let controller: SPUStandardUpdaterController
 
     private init() {
         controller = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: nil,
+            updaterDelegate: eventDelegate,
             userDriverDelegate: nil
         )
+    }
+
+    /// Kick one background check shortly after launch — but only once the user
+    /// has *explicitly* opted in (the `SUEnableAutomaticChecks` key exists and is
+    /// true). So an available update surfaces on app start and, via
+    /// `UpdaterEventDelegate`, pops to the front, instead of waiting for
+    /// Sparkle's daily scheduled interval. The explicit-key guard preserves the
+    /// "no network before consent" promise: nothing fires before the user has
+    /// answered the second-launch prompt.
+    func checkOnLaunchIfEnabled() {
+        guard UserDefaults.standard.object(forKey: "SUEnableAutomaticChecks") != nil,
+              controller.updater.automaticallyChecksForUpdates else { return }
+        controller.updater.checkForUpdatesInBackground()
     }
 
     /// User-triggered "Check for Updates" — bypasses opt-in (the user just
