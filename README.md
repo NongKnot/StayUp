@@ -64,6 +64,17 @@ Helper path, not from pretending a display is magic.
 My creator hatched a Duck before Googling hard enough. Duck has learned
 humility. Duck remains up.
 
+## 🧠 Built For Local Agent Runs
+
+Most keep-awake tools answer "stay on until I remember to turn it off."
+StayUp's Auto mode answers a narrower question: "is trusted local work still
+alive?"
+
+That matters for agent sessions. Local AI tools can run for a long time, go
+quiet between steps, or finish while you are away. StayUp watches local, opt-in
+Activity Sources so the Mac can stay awake while work is real, then release
+after the grace period.
+
 ## 🚀 Getting A Duck
 
 ### Normies Way ✨
@@ -79,17 +90,6 @@ First setup has a few macOS prompts:
   checks once right away; manual Check Now is always there.
 
 No Helper, no hard-case promise. Duck is bold, not fake.
-
-## 🧠 Built For Local Agent Runs
-
-Most keep-awake tools answer "stay on until I remember to turn it off."
-StayUp's Auto mode answers a narrower question: "is trusted local work still
-alive?"
-
-That matters for agent sessions. Local AI tools can run for a long time, go
-quiet between steps, or finish while you are away. StayUp watches local, opt-in
-Activity Sources so the Mac can stay awake while work is real, then release
-after the grace period.
 
 ### Respectable Way 🛠
 
