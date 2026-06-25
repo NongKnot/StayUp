@@ -13,7 +13,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.2</string>
+	<string>1.1.4</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -26,7 +26,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1.1.2</string>
+	<string>1.1.4</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
@@ -44,6 +44,6 @@
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 	<key>SUPublicEDKey</key>
-	<string>YFn+QxLC1/ZfVw7jsDJS6e3T5SX2rG0AVcduATzTTBA=</string>
+	<string>r4BFaPADjQDLbSqz5kV2Q0+JUIpacpZ8QXsvYC7pL2k=</string>
 </dict>
 </plist>

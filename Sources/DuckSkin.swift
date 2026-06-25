@@ -3,8 +3,9 @@ import AppKit
 /// Cosmetic palette for Duck. Lives in its own file so adding skins
 /// later (paid packs, seasonal variants) is just an append to `all`.
 ///
-/// All skins keep the same outline-around-features convention so the
-/// silhouette reads at menu-bar size; only the colors change.
+/// Built-in menu-bar Duck skins fill body / beak / feet without decorative
+/// outlines. The `outline` color remains the shared ink color for pupils,
+/// closed/blink eyes, Zzz contrast, and custom silhouette strokes.
 ///
 /// Eye sclera is always white (handled in IconRenderer) so eyes pop on
 /// any body color.
@@ -13,7 +14,7 @@ struct DuckSkin {
     let displayName: String
     let body:    NSColor      // body fill (light-mode menu bar)
     let beak:    NSColor      // beak + ball-foot fill (light-mode)
-    let outline: NSColor      // body, beak, foot, eye, pupil stroke (light-mode)
+    let outline: NSColor      // facial ink + Zzz/custom stroke (light-mode)
     /// `true` → strip outlines + face details, fill the silhouette with
     /// `body`, mark the rendered NSImage as `isTemplate = true` so macOS
     /// substitutes its system color and adapts to light/dark menu bars.
@@ -141,8 +142,8 @@ extension DuckSkin: Equatable {
     // offOutline` palette overrides — see DuckSkin docs for resolver order.
 
     /// Transformation skin. ON = bright/powered-up palette (gold body,
-    /// amber outline). OFF = calm palette (orange body, peach beak,
-    /// black outline).
+    /// amber ink). OFF = calm palette (orange body, peach beak,
+    /// black ink).
     static let saiyan = DuckSkin(
         id: "saiyan",
         displayName: "Saiyan",
@@ -156,7 +157,7 @@ extension DuckSkin: Equatable {
     )
 
     /// Transformation skin. ON = ivory body + magenta accent + electric
-    /// blue outline. OFF = red body, peach beak, black outline.
+    /// blue ink. OFF = red body, peach beak, black ink.
     static let rubberHero = DuckSkin(
         id: "rubber-hero",
         displayName: "Rubber Hero",

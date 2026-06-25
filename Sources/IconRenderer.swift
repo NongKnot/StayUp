@@ -86,7 +86,7 @@ struct IconRenderer {
 
     // MARK: - Colors
     //
-    // Body / beak / outline come from the active DuckSkin so users can swap
+    // Body / beak / ink come from the active DuckSkin so users can swap
     // Duck variants. Eye sclera stays white across all skins so the eyes
     // always read.
 
@@ -270,8 +270,10 @@ struct IconRenderer {
             return
         }
 
-        // Color skin — full face render
-        fillStroke(ctx, path: warpedBody, fill: body, stroke: ink, width: 22)
+        // Color skin — full face render. The procedural Duck no longer draws
+        // decorative outlines around body/beak/feet; `ink` remains for facial
+        // marks and Zzz contrast.
+        fill(ctx, path: warpedBody, color: body)
 
         let leftEye  = wp(138, 175)
         let rightEye = wp(262, 175)
@@ -374,7 +376,7 @@ struct IconRenderer {
             }
             ctx.restoreGState()
         } else {
-            fillStroke(ctx, path: makeOnBodyPath(), fill: body, stroke: ink, width: 22)
+            fill(ctx, path: makeOnBodyPath(), color: body)
             drawEyesOpen(ctx, leftAt:  CGPoint(x: 138, y: 175),
                               rightAt: CGPoint(x: 262, y: 175))
             drawLipBeak(ctx, at: CGPoint(x: 200, y: 212))
@@ -436,9 +438,8 @@ struct IconRenderer {
         // Stylized "Z" — three strokes (top horizontal, diagonal, bottom
         // horizontal). Drawn as a dark outer stroke + a white inner stroke
         // on the same path so the letter reads on both light and dark
-        // menu bar backgrounds, mirroring Duck body's outlined-white
-        // convention. Without the white inner pass the Z disappears in
-        // dark mode.
+        // menu bar backgrounds. Without the white inner pass the Z
+        // disappears in dark mode.
         let half = z.size / 2
         let path = CGMutablePath()
         path.move(to:    CGPoint(x: z.cx - half, y: z.cy - half))
@@ -499,10 +500,7 @@ struct IconRenderer {
             let r: CGFloat = 38
             let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
             ctx.setFillColor(sclera)        // always white so eyes read on any skin
-            ctx.setStrokeColor(ink)
-            ctx.setLineWidth(14)
             ctx.fillEllipse(in: rect)
-            ctx.strokeEllipse(in: rect)
         }
         // Pupils: nudged 6 source units toward each other, like in the design
         ctx.setFillColor(ink)
@@ -558,20 +556,23 @@ struct IconRenderer {
         p.addCurve(to: t(162, 200),
                    control1: t(168, 226), control2: t(152, 214))
         p.closeSubpath()
-        fillStroke(ctx, path: p, fill: beak, stroke: ink, width: 14)
+        fill(ctx, path: p, color: beak)
     }
 
     private static func drawBallFoot(_ ctx: CGContext, at center: CGPoint) {
         let r: CGFloat = 28
         let rect = CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
         ctx.setFillColor(beak)
-        ctx.setStrokeColor(ink)
-        ctx.setLineWidth(14)
         ctx.fillEllipse(in: rect)
-        ctx.strokeEllipse(in: rect)
     }
 
     // MARK: - Helpers
+
+    private static func fill(_ ctx: CGContext, path: CGPath, color: CGColor) {
+        ctx.setFillColor(color)
+        ctx.addPath(path)
+        ctx.fillPath()
+    }
 
     private static func fillStroke(_ ctx: CGContext, path: CGPath,
                                     fill: CGColor, stroke: CGColor, width: CGFloat) {
