@@ -533,7 +533,9 @@ class MenuController: NSObject, NSMenuDelegate {
             guard granted else { return }   // declined → the menu line still carries it
             let content = UNMutableNotificationContent()
             content.title = names.count == 1 ? "Reconnected \(joined)" : "Reconnected your AI sources"
-            content.body = "\(joined)’s config had changed and dropped StayUp’s activity hook. We re-added it so Auto keeps working."
+            content.body = names.count == 1
+                ? "\(joined)’s config had changed and dropped StayUp’s activity hook. We re-added it so Auto keeps working."
+                : "\(joined) changed their configs and dropped StayUp’s activity hooks. We re-added them so Auto keeps working."
             let req = UNNotificationRequest(
                 identifier: "stayup.hookReconnect", content: content, trigger: nil)
             center.add(req)
@@ -619,9 +621,9 @@ class MenuController: NSObject, NSMenuDelegate {
         // awake for background work but drop the display-keep-awake layers
         // — display-sleep assertion, caffeinate -d, and the virtual display —
         // so macOS can lock and show the login screen. See Settings → General.
-        stack.apply(Desired(engaged: true,
-                            keepScreenOn: Settings.virtualDisplayEnabled,
-                            hasExternalDisplay: hasRealExternalDisplay))
+        stack.apply(engaged: true,
+                    keepScreenOn: Settings.virtualDisplayEnabled,
+                    hasExternalDisplay: hasRealExternalDisplay)
         active = true
         Settings.wasActive = (reason == .manual)
         playClick()
@@ -656,7 +658,7 @@ class MenuController: NSObject, NSMenuDelegate {
         cancelAutoGrace()
         active = false
         Settings.wasActive = false
-        stack.apply(Desired(engaged: false, keepScreenOn: false, hasExternalDisplay: false))
+        stack.apply(engaged: false, keepScreenOn: false, hasExternalDisplay: false)
         stopBatteryMonitor()
         // Powering off the accelerometer also fires onWalkStop if we were
         // mid-walk, which clears `isWalkingNow` and the icon animation.
@@ -696,9 +698,9 @@ class MenuController: NSObject, NSMenuDelegate {
         // display as the real-external presence changes.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, self.active else { return }
-            self.stack.apply(Desired(engaged: true,
-                                     keepScreenOn: Settings.virtualDisplayEnabled,
-                                     hasExternalDisplay: self.hasRealExternalDisplay))
+            self.stack.apply(engaged: true,
+                             keepScreenOn: Settings.virtualDisplayEnabled,
+                             hasExternalDisplay: self.hasRealExternalDisplay)
         }
     }
 
@@ -782,9 +784,9 @@ class MenuController: NSObject, NSMenuDelegate {
         guard active else { return }
         // The planner diffs against the live state, so an unchanged policy is a
         // no-op and a keepScreenOn flip re-arms exactly the display layers.
-        stack.apply(Desired(engaged: true,
-                            keepScreenOn: Settings.virtualDisplayEnabled,
-                            hasExternalDisplay: hasRealExternalDisplay))
+        stack.apply(engaged: true,
+                    keepScreenOn: Settings.virtualDisplayEnabled,
+                    hasExternalDisplay: hasRealExternalDisplay)
     }
 
     /// Called from Settings `onChange` when the auto-mode toggle or

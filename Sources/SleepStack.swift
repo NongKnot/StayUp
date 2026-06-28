@@ -24,15 +24,18 @@ final class SleepStack {
     // survives-a-crash semantics — referenced via `.shared`, not owned here.
 
     /// Last applied state — the planner diffs against it. Also the engaged truth.
-    private var last: Desired?
+    private var last: SleepPlanner.Desired?
 
     var isEngaged: Bool { last?.engaged ?? false }
 
-    /// Reconcile the live stack to `desired`. The one entry point: engage,
+    /// Reconcile the live stack to this state. The one entry point: engage,
     /// disengage, a screen-policy flip, and an external-display change are all
-    /// just this. No-ops cleanly when nothing changed.
-    func apply(_ desired: Desired) {
-        for action in plan(from: last, to: desired) { execute(action) }
+    /// just this. No-ops cleanly when nothing changed. `Desired` stays an
+    /// internal detail — callers pass the three facts directly.
+    func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool) {
+        let desired = SleepPlanner.Desired(
+            engaged: engaged, keepScreenOn: keepScreenOn, hasExternalDisplay: hasExternalDisplay)
+        for action in SleepPlanner.plan(from: last, to: desired) { execute(action) }
         last = desired
     }
 
@@ -66,7 +69,7 @@ final class SleepStack {
 
     // MARK: - Execute planner actions against the real engines
 
-    private func execute(_ action: LayerAction) {
+    private func execute(_ action: SleepPlanner.LayerAction) {
         switch action {
         case let .enable(layer, pds): enable(layer, preventDisplaySleep: pds)
         case let .disable(layer):     disable(layer)
@@ -74,7 +77,7 @@ final class SleepStack {
         }
     }
 
-    private func enable(_ layer: Layer, preventDisplaySleep pds: Bool) {
+    private func enable(_ layer: SleepPlanner.Layer, preventDisplaySleep pds: Bool) {
         switch layer {
         case .caffeinate:     caffeinate.enable(preventDisplaySleep: pds)
         case .sleepPreventer: sleepPreventer.enable(preventDisplaySleep: pds)
@@ -84,7 +87,7 @@ final class SleepStack {
         }
     }
 
-    private func disable(_ layer: Layer) {
+    private func disable(_ layer: SleepPlanner.Layer) {
         switch layer {
         case .caffeinate:     caffeinate.disable()
         case .sleepPreventer: sleepPreventer.disable()
