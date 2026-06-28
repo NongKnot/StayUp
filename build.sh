@@ -62,6 +62,7 @@ swiftc -target "$TARGET" \
     -framework Foundation \
     -framework IOKit \
     -framework Sparkle \
+    -framework UserNotifications \
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -o "${APP}_bin"
 

@@ -1,5 +1,6 @@
 import AppKit
 import ServiceManagement
+import UserNotifications
 
 /// One button: Stay Up.
 /// Engages a five-layer sleep prevention stack:
@@ -34,6 +35,12 @@ class MenuController: NSObject, NSMenuDelegate {
     private var sourcesSeparator:   NSMenuItem!
     private var walkStatsMenuItem: NSMenuItem!
     private var walkStatsSeparator: NSMenuItem!
+    private var reconnectMenuItem: NSMenuItem!
+    private var reconnectSeparator: NSMenuItem!
+    /// Set when a launch hook check found an agent's config had drifted and we
+    /// re-added our entries. Drives the passive menu-bar reminder. Session-scoped
+    /// — clears on the next launch where nothing drifted.
+    private var reconnectNotice: String?
     private var settings:          SettingsWindow?
     private var appearanceObserver: NSKeyValueObservation?
     private var welcome:           WelcomeWindow?
@@ -328,6 +335,17 @@ class MenuController: NSObject, NSMenuDelegate {
         menu.addItem(statusMenuItem)
         menu.addItem(.separator())
 
+        // Hook-reconnect reminder — hidden until a launch check finds an agent's
+        // config dropped our activity hook and we re-added it. Passive backstop
+        // (paired with a one-shot notification) so the user still sees it later.
+        reconnectMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        reconnectMenuItem.isEnabled = false
+        reconnectMenuItem.isHidden  = true
+        menu.addItem(reconnectMenuItem)
+        reconnectSeparator = .separator()
+        reconnectSeparator.isHidden = true
+        menu.addItem(reconnectSeparator)
+
         // Mode — Off / On / Auto tri-state. Exactly one is checked (set in
         // updateUI from currentMode); each routes through setMode.
         //   Off  = let the Mac sleep.   On = stay awake now (manual).
@@ -483,7 +501,10 @@ class MenuController: NSObject, NSMenuDelegate {
             Settings.setReportedHookConnectionAllowed(true)
         }
         ActivitySourceHookInstaller.redeployScriptIfNeeded()   // ship script updates from app upgrades
-        ActivitySourceHookInstaller.repairIfNeeded()
+        let reconnected = ActivitySourceHookInstaller.repairIfNeeded()
+        if !reconnected.isEmpty { reportHookReconnect(reconnected) }
+        // Periodic self-heal stays silent — the reminder is a launch-time check;
+        // mid-session drift gets re-asserted here and surfaced on the next launch.
         let t = Timer(timeInterval: Self.HOOK_HEAL_SECS, repeats: true) { _ in
             ActivitySourceHookInstaller.repairIfNeeded()
         }
@@ -498,6 +519,35 @@ class MenuController: NSObject, NSMenuDelegate {
         externalWatcher.stop()
         hookHealTimer?.invalidate(); hookHealTimer = nil
         if sourcesPopover.isShown { sourcesPopover.close() }
+    }
+
+    /// A launch check found these agents had dropped StayUp's activity hook (config
+    /// drift) and we re-added it. Remind the user: a one-shot notification (in case
+    /// the menu is closed) plus a passive menu line that lingers for the session.
+    private func reportHookReconnect(_ names: [String]) {
+        let joined = names.joined(separator: ", ")
+        reconnectNotice = names.count == 1
+            ? "Reconnected \(joined) — config had changed"
+            : "Reconnected \(joined) — configs had changed"
+        updateUI()
+        notifyHookReconnect(names)
+    }
+
+    private func notifyHookReconnect(_ names: [String]) {
+        if Self.isTestMode { return }
+        let joined = names.joined(separator: ", ")
+        let center = UNUserNotificationCenter.current()
+        // Authorization is requested lazily — only the first time an agent actually
+        // drifts, so most users never see the prompt. Cached after the first ask.
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }   // declined → the menu line still carries it
+            let content = UNMutableNotificationContent()
+            content.title = names.count == 1 ? "Reconnected \(joined)" : "Reconnected your AI sources"
+            content.body = "\(joined)’s config had changed and dropped StayUp’s activity hook. We re-added it so Auto keeps working."
+            let req = UNNotificationRequest(
+                identifier: "stayup.hookReconnect", content: content, trigger: nil)
+            center.add(req)
+        }
     }
 
     @objc private func showActivitySourcesPopover() {
@@ -1227,6 +1277,9 @@ class MenuController: NSObject, NSMenuDelegate {
         // hidden if the user has never walked since launch.
         updateWalkStatsItem()
 
+        // Hook-reconnect reminder: shown when a launch check re-added a dropped hook.
+        updateReconnectItem()
+
         // Mode radios + Keep-screen — dots instead of system checkmarks, coloured
         // by meaning (Off gray, On green, Auto blue; selected = filled).
         let mode = currentMode
@@ -1398,6 +1451,17 @@ class MenuController: NSObject, NSMenuDelegate {
         } else {
             walkStatsMenuItem.isHidden = true
             walkStatsSeparator.isHidden = true
+        }
+    }
+
+    private func updateReconnectItem() {
+        if let notice = reconnectNotice {
+            reconnectMenuItem.title    = "⚠︎  \(notice)"
+            reconnectMenuItem.isHidden = false
+            reconnectSeparator.isHidden = false
+        } else {
+            reconnectMenuItem.isHidden = true
+            reconnectSeparator.isHidden = true
         }
     }
 

@@ -276,10 +276,16 @@ enum ActivitySourceHookInstaller {
     /// gone missing, silently re-assert them. No-op when Auto is off or the
     /// hooks are already present. Safe to call often (e.g. on launch + a
     /// periodic timer). Best-effort — never throws.
-    static func repairIfNeeded() {
-        guard Settings.autoSourceEnabled else { return }
-        guard managedSources.contains(where: { wants($0, onlyEnabled: true) }) else { return }
-        guard Settings.reportedHookConnectionAllowed || isInstalled(onlyEnabled: true) else { return }
+    ///
+    /// Returns the display names whose *config* hook entries had drifted away
+    /// (i.e. the agent dropped them) and were re-added — so a caller can remind
+    /// the user. Empty when nothing drifted, or when the only repair was to our
+    /// own deployed script/wrapper (an app-upgrade concern, not the user's).
+    @discardableResult
+    static func repairIfNeeded() -> [String] {
+        guard Settings.autoSourceEnabled else { return [] }
+        guard managedSources.contains(where: { wants($0, onlyEnabled: true) }) else { return [] }
+        guard Settings.reportedHookConnectionAllowed || isInstalled(onlyEnabled: true) else { return [] }
         // Reinstall when our hooks are missing OR the deployed script itself was
         // deleted — isInstalled() only inspects settings.json, not the file on
         // disk, so without the second check a deleted script never self-heals
@@ -289,8 +295,12 @@ enum ActivitySourceHookInstaller {
             (wants(claudeSource, onlyEnabled: true) && !FileManager.default.fileExists(atPath: wrapperURL(for: claudeSource, scriptDest: scriptDestURL).path)) ||
             (wants(codexSource, onlyEnabled: true) && !FileManager.default.fileExists(atPath: wrapperURL(for: codexSource, scriptDest: scriptDestURL).path)) ||
             (wants(cursorSource, onlyEnabled: true) && !FileManager.default.fileExists(atPath: wrapperURL(for: cursorSource, scriptDest: scriptDestURL).path))
-        guard !isInstalled(onlyEnabled: true) || scriptMissing || wrapperMissing else { return }
+        // Drift = our hook entries gone from the agent's own config (vs. our
+        // script/wrapper on disk). Capture before reinstalling so we can report it.
+        let drifted = missingHookDisplayNames(onlyEnabled: true)
+        guard !isInstalled(onlyEnabled: true) || scriptMissing || wrapperMissing else { return [] }
         try? install(onlyEnabled: true)
+        return drifted
     }
 
     /// Overwrite the deployed hook script with the bundled one. Lets a new app
