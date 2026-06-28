@@ -13,10 +13,7 @@ class MenuController: NSObject, NSMenuDelegate {
 
     // MARK: - Engines
 
-    private let caffeinate         = Caffeinate()
-    private let sleepPreventer     = SleepPreventer()
-    private let closedLidPreventer = ClosedLidPreventer()
-    private let virtualDisplay     = VirtualDisplay()
+    private let stack              = SleepStack()
     private let powerSource        = PowerSourceMonitor()
     private let walkDetector       = WalkDetector()
     private let sourceMonitor       = ActivitySourceMonitor()
@@ -101,16 +98,17 @@ class MenuController: NSObject, NSMenuDelegate {
         }
         let power: String
         switch powerSource.current { case .ac: power = "ac"; case .battery: power = "battery"; default: power = "unknown" }
+        let stackState = stack.snapshot()
         var status: [String: Any] = [
             "ts": Int(Date().timeIntervalSince1970),
             "active": active,
             "mode": ["off", "on", "auto"][currentMode.rawValue],
             "keepScreenOn": Settings.virtualDisplayEnabled,
-            "caffeinate": caffeinate.isActive,
-            "sleep": sleepPreventer.isActive,
-            "lid": closedLidPreventer.isEnabled,
-            "virtualDisplay": virtualDisplay.isActive,
-            "helper": StayUpHelper.shared.isEnabled,
+            "caffeinate": stackState.caffeinate,
+            "sleep": stackState.sleepPreventer,
+            "lid": stackState.closedLid,
+            "virtualDisplay": stackState.virtualDisplay,
+            "helper": stackState.helper,
             "power": power,
             "dontDieTriggered": dontDieTriggered,
             "dontDieEnabled": Settings.dontDieEnabled,
@@ -160,11 +158,6 @@ class MenuController: NSObject, NSMenuDelegate {
     private var sourceDetectionOn = false
     /// Live Activity Sources panel, opened from the menu's source row (Auto mode only).
     private lazy var sourcesPopover = ActivitySourcesPopover()
-
-    /// The screen-lock policy currently applied to the live stack, so a mid-
-    /// engage settings flip only re-arms the display layers when it actually
-    /// changed (see `reapplyScreenPolicy`).
-    private var appliedKeepScreenOn = true
 
     /// Walk-animation state. When the accelerometer says we're walking the
     /// Duck icon swaps between two stride frames at a fixed cadence; the
@@ -220,9 +213,10 @@ class MenuController: NSObject, NSMenuDelegate {
         Settings.migrateLegacyDefaultsIfNeeded()
         _ = ExternalSourceWatcher.ensureStayUpFolder()
 
-        // Defensive: clear any leftover `pmset disablesleep 1` from a prior
-        // session that crashed / was force-killed while engaged.
-        StayUpHelper.shared.disable()
+        // Defensive: clear any leftover sleep-prevention state (esp. the helper's
+        // system-wide `pmset disablesleep 1`) from a prior session that crashed
+        // or was force-killed while engaged.
+        stack.shutdown()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.imagePosition = .imageOnly
@@ -261,7 +255,7 @@ class MenuController: NSObject, NSMenuDelegate {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            if self.sleepPreventer.isActive { self.sleepPreventer.refresh() }
+            self.stack.refresh()
         }
 
         NotificationCenter.default.addObserver(
@@ -309,11 +303,7 @@ class MenuController: NSObject, NSMenuDelegate {
         blinkTimer = nil
         zzzTimer?.invalidate()
         zzzTimer = nil
-        caffeinate.disable()
-        sleepPreventer.disable()
-        closedLidPreventer.disable()
-        virtualDisplay.disable()
-        StayUpHelper.shared.disable()
+        stack.shutdown()
         walkDetector.stop()
         powerSource.stop()
         active = false
@@ -629,13 +619,9 @@ class MenuController: NSObject, NSMenuDelegate {
         // awake for background work but drop the display-keep-awake layers
         // — display-sleep assertion, caffeinate -d, and the virtual display —
         // so macOS can lock and show the login screen. See Settings → General.
-        let keepScreenOn = Settings.virtualDisplayEnabled
-        appliedKeepScreenOn = keepScreenOn
-        caffeinate.enable(preventDisplaySleep: keepScreenOn)
-        sleepPreventer.enable(preventDisplaySleep: keepScreenOn)
-        _ = closedLidPreventer.enable()
-        if keepScreenOn && !hasRealExternalDisplay { virtualDisplay.enable() }
-        StayUpHelper.shared.enable()
+        stack.apply(Desired(engaged: true,
+                            keepScreenOn: Settings.virtualDisplayEnabled,
+                            hasExternalDisplay: hasRealExternalDisplay))
         active = true
         Settings.wasActive = (reason == .manual)
         playClick()
@@ -670,11 +656,7 @@ class MenuController: NSObject, NSMenuDelegate {
         cancelAutoGrace()
         active = false
         Settings.wasActive = false
-        caffeinate.disable()
-        sleepPreventer.disable()
-        closedLidPreventer.disable()
-        virtualDisplay.disable()
-        StayUpHelper.shared.disable()
+        stack.apply(Desired(engaged: false, keepScreenOn: false, hasExternalDisplay: false))
         stopBatteryMonitor()
         // Powering off the accelerometer also fires onWalkStop if we were
         // mid-walk, which clears `isWalkingNow` and the icon animation.
@@ -709,15 +691,14 @@ class MenuController: NSObject, NSMenuDelegate {
     private func handleDisplayChange() {
         guard active else { return }
         guard Settings.virtualDisplayEnabled else { return }  // screen-lock mode: no virtual display
-        if hasRealExternalDisplay {
-            // A real external arrived; debounce so we don't churn during
-            // transient screen-list reshuffles.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                guard let self, self.active, self.hasRealExternalDisplay else { return }
-                self.virtualDisplay.disable()
-            }
-        } else {
-            if !virtualDisplay.isActive { virtualDisplay.enable() }
+        // Debounce: the screen list churns during transient reshuffles. Re-apply
+        // the current desired state — the planner adds/drops only the virtual
+        // display as the real-external presence changes.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.active else { return }
+            self.stack.apply(Desired(engaged: true,
+                                     keepScreenOn: Settings.virtualDisplayEnabled,
+                                     hasExternalDisplay: self.hasRealExternalDisplay))
         }
     }
 
@@ -799,16 +780,11 @@ class MenuController: NSObject, NSMenuDelegate {
     /// No-op when idle or when the policy hasn't actually changed.
     private func reapplyScreenPolicy() {
         guard active else { return }
-        let keepScreenOn = Settings.virtualDisplayEnabled
-        guard keepScreenOn != appliedKeepScreenOn else { return }
-        appliedKeepScreenOn = keepScreenOn
-        caffeinate.disable();     caffeinate.enable(preventDisplaySleep: keepScreenOn)
-        sleepPreventer.disable(); sleepPreventer.enable(preventDisplaySleep: keepScreenOn)
-        if keepScreenOn {
-            if !hasRealExternalDisplay { virtualDisplay.enable() }
-        } else {
-            virtualDisplay.disable()
-        }
+        // The planner diffs against the live state, so an unchanged policy is a
+        // no-op and a keepScreenOn flip re-arms exactly the display layers.
+        stack.apply(Desired(engaged: true,
+                            keepScreenOn: Settings.virtualDisplayEnabled,
+                            hasExternalDisplay: hasRealExternalDisplay))
     }
 
     /// Called from Settings `onChange` when the auto-mode toggle or
@@ -1500,6 +1476,7 @@ class MenuController: NSObject, NSMenuDelegate {
     func signalDisengage() { if  active { disengage() } }
 
     func signalDumpState() {
+        let st = stack.snapshot()
         let s = """
         === StayUp State ===
         active:                       \(active)
@@ -1508,12 +1485,12 @@ class MenuController: NSObject, NSMenuDelegate {
         batteryPct:                   \(powerSource.batteryPercent().map(String.init) ?? "nil")
         Settings.dontDieEnabled:      \(Settings.dontDieEnabled)
         Settings.dontDiePct:          \(Settings.dontDiePct)
-        caffeinate.isActive:          \(caffeinate.isActive)
-        sleepPreventer.isActive:      \(sleepPreventer.isActive)
-        closedLidPreventer.isEnabled: \(closedLidPreventer.isEnabled)
-        virtualDisplay.isActive:      \(virtualDisplay.isActive)
+        caffeinate.isActive:          \(st.caffeinate)
+        sleepPreventer.isActive:      \(st.sleepPreventer)
+        closedLidPreventer.isEnabled: \(st.closedLid)
+        virtualDisplay.isActive:      \(st.virtualDisplay)
         StayUpHelper.status:          \(StayUpHelper.shared.status)
-        StayUpHelper.isEnabled:       \(StayUpHelper.shared.isEnabled)
+        StayUpHelper.isEnabled:       \(st.helper)
         SleepDisabled.live:           \(StayUpHelper.shared.sleepDisabledLiveState().map(String.init) ?? "unknown")
         ====================
 

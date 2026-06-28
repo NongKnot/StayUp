@@ -41,6 +41,8 @@ swiftc -target "$TARGET" \
     Sources/ClosedLidPreventer.swift \
     Sources/VirtualDisplay.swift \
     Sources/StayUpHelper.swift \
+    Sources/SleepStackPlanner.swift \
+    Sources/SleepStack.swift \
     Sources/PowerSourceMonitor.swift \
     Sources/ActivitySourceMonitor.swift \
     Sources/ActivitySourceHookInstaller.swift \
