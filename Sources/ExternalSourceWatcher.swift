@@ -24,9 +24,9 @@ import Foundation
 /// absent: they don't run on this Mac, so they can't keep it awake.
 final class ExternalSourceWatcher {
 
-    private static let bundledReportedSourceNames: Set<String> = ["Claude", "Codex", "Cursor"]
-    private static let bundledObservedSourceNames: Set<String> = ["Ollama", "LM Studio"]
-    private static let bundledSourceNames = bundledReportedSourceNames.union(bundledObservedSourceNames)
+    private static let bundledReportedSourceNames = Set(BundledSources.reported.map(\.key))
+    private static let bundledObservedSourceNames = Set(BundledSources.observed.map(\.key))
+    private static let bundledSourceNames = Set(BundledSources.all.map(\.key))
 
     struct ConfiguredSourceInfo {
         let key: String
@@ -49,7 +49,7 @@ final class ExternalSourceWatcher {
         let freshSecs: Double
     }
 
-    private static let POLL: TimeInterval = 15
+    private static let POLL: TimeInterval = 5
     private var timer: Timer?
     private var sources: [Source] = []
 
@@ -476,12 +476,8 @@ final class ExternalSourceWatcher {
     }
 
     static func slug(for name: String, displayName: String? = nil) -> String {
+        if let bundled = BundledSources.source(named: name) { return bundled.slug }
         switch name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "claude": return "claude-code-cli"
-        case "codex": return "codex-cli"
-        case "cursor": return "cursor"
-        case "ollama": return "ollama"
-        case "lm studio": return "lm-studio"
         default:
             let raw = (displayName?.isEmpty == false ? displayName! : name).lowercased()
             var out = ""
@@ -736,6 +732,13 @@ Auto, and choose the After stop grace period.
                             sourceName: "Ollama",
                             type: "socket",
                             path: nil)
+        // Ollama moved from socket to a CPU-gated process recipe. Retire the old
+        // socket default (an idle-but-ESTABLISHED client connection was a false
+        // positive) so existing installs pick up the new `process` recipe.
+        removeRetiredSource(folderSlug: "ollama",
+                            sourceName: "Ollama",
+                            type: "socket",
+                            path: nil)
         removeRetiredSource(folderSlug: "model-server-log-source",
                             sourceName: "LM Studio",
                             type: "logPattern",
@@ -791,35 +794,22 @@ Auto, and choose the After stop grace period.
     /// Do not add broad transcript/session-file freshness as a default. It can
     /// look active after the actual work is done and teach Auto to stay up for
     /// the wrong reason.
-    private static let defaults: [Source] = [
-        Source(name: "Ollama", displayName: "Ollama", folderSlug: nil,
-               type: "socket", path: nil, match: "ollama runner",
-               activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0),
-        Source(name: "LM Studio", displayName: "LM Studio", folderSlug: nil,
-               type: "logPattern", path: "~/.lmstudio/server-logs/*/*.log", match: nil,
-               activePattern: "processing task|n_decoded|print_timing",
-               idlePattern: "all slots are idle", minCpu: 0, freshSecs: 45),
-    ]
+    private static let defaults: [Source] = BundledSources.observed.map { b in
+        let r = b.recipe!
+        return Source(name: b.key, displayName: b.displayName, folderSlug: nil,
+                      type: r.type, path: r.path, match: r.match,
+                      activePattern: r.activePattern, idlePattern: r.idlePattern,
+                      minCpu: r.minCpu, freshSecs: r.freshSecs)
+    }
 
-    private static let reportedSources: [Source] = [
-        Source(name: "Claude", displayName: "Claude", folderSlug: nil, type: "reported",
-               path: nil, match: nil, activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0),
-        Source(name: "Codex", displayName: "Codex", folderSlug: nil, type: "reported",
-               path: nil, match: nil, activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0),
-        Source(name: "Cursor", displayName: "Cursor", folderSlug: nil, type: "reported",
-               path: nil, match: nil, activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0),
-    ]
+    private static let reportedSources: [Source] = BundledSources.reported.map { b in
+        Source(name: b.key, displayName: b.displayName, folderSlug: nil, type: "reported",
+               path: nil, match: nil, activePattern: nil, idlePattern: nil, minCpu: 0, freshSecs: 0)
+    }
 
     private static func publicDisplayName(for source: Source) -> String {
-        switch source.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "claude": return "Claude"
-        case "codex": return "Codex"
-        case "cursor": return "Cursor"
-        case "ollama": return "Ollama"
-        case "lm studio": return "LM Studio"
-        default:
-            return source.displayName?.isEmpty == false ? source.displayName! : source.name
-        }
+        if let bundled = BundledSources.source(named: source.name) { return bundled.displayName }
+        return source.displayName?.isEmpty == false ? source.displayName! : source.name
     }
 
     private static var reportedSourceInfos: [ConfiguredSourceInfo] {

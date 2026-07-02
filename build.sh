@@ -45,6 +45,7 @@ swiftc -target "$TARGET" \
     Sources/SleepStack.swift \
     Sources/PowerSourceMonitor.swift \
     Sources/ActivitySourceMonitor.swift \
+    Sources/BundledSources.swift \
     Sources/ActivitySourceHookInstaller.swift \
     Sources/ExternalSourceWatcher.swift \
     Sources/ActivitySourcesPopover.swift \

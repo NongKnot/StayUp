@@ -110,7 +110,9 @@ source_pid() {
     printf '%s' "$parent"
 }
 
-sid=$(printf '%s' "${STAYUP_SESSION_ID:-$(field session_id)}" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[.]*//')
+raw_sid="${STAYUP_SESSION_ID:-$(field session_id)}"
+[ -n "$raw_sid" ] || raw_sid="$(field sessionId)"   # Copilot CLI uses camelCase
+sid=$(printf '%s' "$raw_sid" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^[.]*//')
 [ -n "$sid" ] || sid="unknown"
 file="$dir/$sid"
 tools="$file.tools"
