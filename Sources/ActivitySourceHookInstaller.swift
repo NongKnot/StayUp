@@ -391,6 +391,17 @@ enum ActivitySourceHookInstaller {
           } catch (e) { /* a hook must never break the turn */ }
         }
 
+        // Streaming message events fire per token — throttle the "active"
+        // heartbeat so a chat-only turn (no tools) still protects the Mac
+        // without spawning a shell every few ms.
+        let lastActiveAt = 0
+        function reportActiveThrottled(sessionID, directory) {
+          const now = Date.now()
+          if (now - lastActiveAt < 15000) return
+          lastActiveAt = now
+          report("active", sessionID, directory)
+        }
+
         export const StayUp = async ({ directory }) => {
           return {
             event: async ({ event }) => {
@@ -400,6 +411,8 @@ enum ActivitySourceHookInstaller {
               if (type === "session.idle") report("waiting", sid, directory)
               else if (type === "session.created") report("waiting", sid, directory)
               else if (type === "session.deleted") report("stop", sid, directory)
+              else if (type === "message.updated" || type === "message.part.updated")
+                reportActiveThrottled(sid || (props.info && props.info.sessionID) || "", directory)
             },
             "tool.execute.before": async (input) => report("tool-begin", input && input.sessionID, directory),
             "tool.execute.after": async (input) => report("tool-end", input && input.sessionID, directory),

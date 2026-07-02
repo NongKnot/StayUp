@@ -202,6 +202,11 @@ enum BundledSources {
                 ("session.deleted",      "stop"),
                 ("tool.execute.before",  "tool-begin"),
                 ("tool.execute.after",   "tool-end"),
+                // Chat-only turns fire no tool events; streaming message events
+                // are the generation signal (throttled to one heartbeat / 15s
+                // inside the plugin so per-token events don't spawn shells).
+                ("message.updated",      "active"),
+                ("message.part.updated", "active"),
             ],
             transcriptFolders: []),
 
