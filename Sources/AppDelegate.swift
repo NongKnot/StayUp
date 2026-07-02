@@ -7,13 +7,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        // Debug path: dump rendered icon PNGs to /tmp and exit. Used by the
-        // test harness to visually verify IconRenderer before deploying.
-        if ProcessInfo.processInfo.environment["STAYUP_DUMPICONS"] != nil {
-            IconRenderer.dumpToDisk()
-            NSApp.terminate(nil)
-            return
-        }
         let mc = MenuController()
         menuController = mc
         mc.setup()

@@ -287,11 +287,12 @@ final class ActivitySourceMonitor {
             options: []
         ) else { return }
 
+        // Tool markers themselves are cleaned by tool-end/turn-start/marker
+        // pruning; this only clears foreign non-file entries.
         for entry in entries {
-            guard let vals = try? entry.resourceValues(forKeys: [.isRegularFileKey]),
-                  vals.isRegularFile == true else {
+            let vals = try? entry.resourceValues(forKeys: [.isRegularFileKey])
+            if vals?.isRegularFile != true {
                 try? FileManager.default.removeItem(at: entry)
-                continue
             }
         }
     }

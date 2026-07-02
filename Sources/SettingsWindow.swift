@@ -503,10 +503,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         sourceDeleteTargets.removeAll()
 
-        var seen = Set<String>()
-        let sources = ExternalSourceWatcher.configuredSourceInfo().filter { source in
-            seen.insert(source.key).inserted
-        }
+        let sources = ExternalSourceWatcher.configuredSourceInfo()
         guard !sources.isEmpty else {
             let empty = NSTextField(labelWithString: "No sources yet. Copy the setup prompt or add source.json, then refresh.")
             empty.font = NSFont.systemFont(ofSize: 11)
@@ -1206,25 +1203,6 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
             onChange?()
         } catch {
             sourceActionNote.stringValue = "Could not connect \(source.displayName): \(error.localizedDescription)"
-        }
-    }
-    @objc private func cleanupSourceHooks(_ sender: NSButton) {
-        guard let slug = sender.identifier?.rawValue,
-              let source = sourceDeleteTargets[slug] else { return }
-
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Clean up hooks for \(source.displayName)?"
-        alert.informativeText = "This removes only StayUp hook entries from that tool's config. It leaves the tool, projects, logs, and other hooks alone."
-        alert.addButton(withTitle: "Clean Up Hooks")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-
-        do {
-            try ActivitySourceHookInstaller.cleanupHooks(for: source.key)
-            sourceActionNote.stringValue = "Cleaned up StayUp hook entries for \(source.displayName)."
-        } catch {
-            sourceActionNote.stringValue = "Could not clean up hooks for \(source.displayName): \(error.localizedDescription)"
         }
     }
     /// Launch the bundled live tester (tools/stayup.sh) in Terminal. `open -a`

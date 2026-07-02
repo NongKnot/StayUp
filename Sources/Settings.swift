@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 /// Typed, defaulted access to StayUp user preferences.
@@ -190,8 +189,4 @@ enum Settings {
         set { d.set(newValue, forKey: "stayup.didOnboard") }
     }
 
-    // MARK: - Colors
-
-    /// Menu-bar Duck accent color when Stay Up is on.
-    static let onColor: NSColor = NSColor(calibratedRed: 0.80, green: 0.47, blue: 0.36, alpha: 1)
 }

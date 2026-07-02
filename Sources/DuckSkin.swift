@@ -68,13 +68,6 @@ struct DuckSkin {
     var customOnPath:  CGPath? = nil
     var customOffPath: CGPath? = nil
 
-    /// True when this skin uses a custom silhouette instead of the
-    /// procedural Duck. Convenience for dispatch sites that want a
-    /// boolean instead of nil-checking both paths.
-    var hasCustomGeometry: Bool {
-        customOnPath != nil || customOffPath != nil
-    }
-
     /// Mark a parked skin as work-in-progress. Public v1 does not surface
     /// these skins; keep the flag for future pack UI.
     var isWorkInProgress: Bool = false
@@ -83,9 +76,7 @@ struct DuckSkin {
 /// Manual `Equatable` — compares by `id` only. CGPath is a CoreFoundation
 /// class with no Swift Equatable synthesis, so we can't rely on the
 /// auto-synthesized conformance once `customOnPath` was added. ID-only
-/// comparison matches every existing usage in the codebase (`pack.skins
-/// .contains(self)` in `DuckSkin.pack` is the only call site, and packs
-/// don't contain skins with duplicate IDs).
+/// comparison is sufficient because skin IDs are unique across packs.
 extension DuckSkin: Equatable {
     static func == (lhs: DuckSkin, rhs: DuckSkin) -> Bool {
         lhs.id == rhs.id
@@ -182,11 +173,4 @@ extension DuckSkin: Equatable {
         all.first(where: { $0.id == id }) ?? .classic
     }
 
-    /// The pack this skin lives in. Useful for the picker to render lock
-    /// state and price tags next to each skin row. Returns `starter` if a
-    /// stale skin ID resolves into the codebase somehow — same defensive
-    /// fallback as `byId`.
-    var pack: DuckPack {
-        DuckPack.all.first(where: { $0.skins.contains(self) }) ?? .starter
-    }
 }

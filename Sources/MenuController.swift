@@ -172,8 +172,8 @@ class MenuController: NSObject, NSMenuDelegate {
     private var lastWalkSteps:    Int = 0
     private var lastWalkEndedAt:  Date?
 
-    /// Cycles the idle/on-state roast every minute so the same line doesn't
-    /// stay on screen forever.
+    /// One-shot timer that clears the post-walk roast line after the window
+    /// elapses. Roast is walk-only now, not a cycling idle/on-state timer.
     private var roastTimer:       Timer?
 
     // MARK: - Animation state
@@ -437,6 +437,7 @@ class MenuController: NSObject, NSMenuDelegate {
         }
         reconcileAutoMode()
         updateUI()
+        publishStatus()
     }
 
     private func connectReportedHooksForAutoIfAllowed() -> Error? {
@@ -609,6 +610,7 @@ class MenuController: NSObject, NSMenuDelegate {
         Settings.virtualDisplayEnabled.toggle()
         reapplyScreenPolicy()
         updateUI()
+        publishStatus()
     }
 
     // MARK: - Engage / disengage
@@ -636,6 +638,7 @@ class MenuController: NSObject, NSMenuDelegate {
         stopZzzAnimation()
         startTransition(toActive: true)
         updateUI()
+        publishStatus()
     }
 
     /// Bring the WalkDetector state in line with `Settings.walkEnabled`
@@ -667,6 +670,7 @@ class MenuController: NSObject, NSMenuDelegate {
         stopBlinkAnimation()
         startTransition(toActive: false)
         updateUI()
+        publishStatus()
     }
 
     private func playClick() {
@@ -913,8 +917,8 @@ class MenuController: NSObject, NSMenuDelegate {
     // MARK: - Roast text
     //
     // Duck commentary next to the menu-bar icon. Walk-only: live commentary
-    // while you're moving, a parting line for ~90s after you stop, otherwise
-    // silent. Idle/on roasts felt like noise during normal desk work.
+    // while you're moving, a parting line for a few seconds after you stop,
+    // otherwise silent. Idle/on roasts felt like noise during normal desk work.
 
     private static let postWalkRoastWindow: TimeInterval = 5
 
@@ -944,7 +948,7 @@ class MenuController: NSObject, NSMenuDelegate {
         return nil
     }
 
-    /// One-shot timer that hides the post-walk roast once the 90s window
+    /// One-shot timer that hides the post-walk roast once the 5s window
     /// elapses. Without this the line would linger in the bar until the
     /// next walk event since nothing else triggers a UI refresh.
     private func schedulePostWalkRoastClear() {
@@ -1270,7 +1274,7 @@ class MenuController: NSObject, NSMenuDelegate {
         keepScreenItem.state = .off
 
         updateSourcesItem()
-        publishStatus()   // keep ~/.stayup/status.json fresh for the live tester
+        publishStatusThrottled()   // tester file refreshes on the 5s throttle from animation ticks; real state changes publish directly
     }
 
     /// Status line — staged + colour-coded, dot leading. Walking > sleeping
@@ -1498,17 +1502,5 @@ class MenuController: NSObject, NSMenuDelegate {
 
         """
         FileHandle.standardError.write(Data(s.utf8))
-    }
-}
-
-private extension Array where Element == String {
-    /// Pick an element by wall-clock minute so the menu-bar text rotates
-    /// every `seconds` without us needing to track an index. Same minute
-    /// always returns the same line, so the bar is stable while the user
-    /// looks at it but cycles when they look back later.
-    func cycle(every seconds: Int) -> String {
-        guard !isEmpty else { return "" }
-        let bucket = Int(Date().timeIntervalSince1970) / seconds
-        return self[bucket % count]
     }
 }

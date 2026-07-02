@@ -34,7 +34,6 @@ final class ExternalSourceWatcher {
         let type: String
         let method: String
         let folderSlug: String
-        let isDeleted: Bool
     }
 
     private struct Source {
@@ -119,8 +118,7 @@ final class ExternalSourceWatcher {
                     displayName: publicDisplayName(for: source),
                     type: source.type,
                     method: (dict["method"] as? String) ?? source.type,
-                    folderSlug: source.folderSlug ?? slug(for: source.name, displayName: source.displayName),
-                    isDeleted: false
+                    folderSlug: source.folderSlug ?? slug(for: source.name, displayName: source.displayName)
                 )
             })
         if !sources.isEmpty {
@@ -136,8 +134,7 @@ final class ExternalSourceWatcher {
                                  displayName: publicDisplayName(for: $0),
                                  type: $0.type,
                                  method: $0.type,
-                                 folderSlug: slug(for: $0.name, displayName: $0.displayName),
-                                 isDeleted: Settings.isSourceDeleted($0.name))
+                                 folderSlug: slug(for: $0.name, displayName: $0.displayName))
         }
     }
 
@@ -167,20 +164,6 @@ final class ExternalSourceWatcher {
         Settings.setSource(source.key, enabled: false)
         if bundledSourceNames.contains(source.key) {
             Settings.setSourceDeleted(source.key, deleted: true)
-        }
-    }
-
-    static func restoreConfiguredSource(_ source: ConfiguredSourceInfo) throws {
-        Settings.setSourceDeleted(source.key, deleted: false)
-
-        if let known = (reportedSources + defaults).first(where: { $0.name.caseInsensitiveCompare(source.key) == .orderedSame }) {
-            let normalized = sourceWithKnownDisplayName(known)
-            let method = bundledReportedSourceNames.contains(normalized.name) ? "reported" : normalized.type
-            writeBundledSourceFile(normalized, method: method)
-            if method == "reported" {
-                Settings.setReportedHookConnectionAllowed(true)
-                try ActivitySourceHookInstaller.installHooks(for: normalized.name)
-            }
         }
     }
 
@@ -845,8 +828,7 @@ Auto, and choose the After stop grace period.
                                  displayName: publicDisplayName(for: $0),
                                  type: $0.type,
                                  method: "reported",
-                                 folderSlug: slug(for: $0.name, displayName: $0.displayName),
-                                 isDeleted: Settings.isSourceDeleted($0.name))
+                                 folderSlug: slug(for: $0.name, displayName: $0.displayName))
         }
     }
 
