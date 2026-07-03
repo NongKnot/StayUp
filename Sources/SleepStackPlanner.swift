@@ -9,13 +9,19 @@ import Foundation
 /// top-level globals in the single-module app.
 enum SleepPlanner {
 
-    /// What the caller wants the stack to be — the three facts the policy needs.
+    /// What the caller wants the stack to be — the four facts the policy needs.
     struct Desired: Equatable {
         var engaged: Bool
         /// false = screen-lock mode: hold the system awake but let the display sleep.
         var keepScreenOn: Bool
         /// A real external screen makes the virtual display redundant.
         var hasExternalDisplay: Bool
+        /// Lid shut (or the machine has no lid — desktops pass true so the
+        /// headless remote-GUI display still spawns). Lid open = the real
+        /// built-in screen is available, so no fake display is needed.
+        /// Defaults true: pre-lid-gating behavior for callers/tests that
+        /// don't care.
+        var lidClosed: Bool = true
     }
 
     /// The five layers, by name. Not a uniform protocol — they differ (flags, the
@@ -42,8 +48,12 @@ enum SleepPlanner {
             return (d.engaged, false)
         case .virtualDisplay:
             // The virtual display exists only to mimic an external screen while the
-            // screen is kept on: engaged AND keep-screen-on AND no real external.
-            return (d.engaged && d.keepScreenOn && !d.hasExternalDisplay, false)
+            // screen is kept on: engaged AND keep-screen-on AND no real external
+            // AND the lid is shut (or the Mac has no lid). Lid-open needs no fake
+            // display — the built-in one is right there. Bench 2026-07-03: a
+            // CGVirtualDisplay survives lid-close and can be created lid-closed
+            // while the Helper holds sleep, so gating on the lid is safe.
+            return (d.engaged && d.keepScreenOn && !d.hasExternalDisplay && d.lidClosed, false)
         }
     }
 

@@ -15,6 +15,7 @@ class MenuController: NSObject, NSMenuDelegate {
 
     private let stack              = SleepStack()
     private let powerSource        = PowerSourceMonitor()
+    private let lidMonitor         = LidMonitor()
     private let walkDetector       = WalkDetector()
     private let sourceMonitor       = ActivitySourceMonitor()
     private let externalWatcher    = ExternalSourceWatcher()
@@ -129,6 +130,7 @@ class MenuController: NSObject, NSMenuDelegate {
             status["sleepDisabled"] = sleepDisabled
         }
         if let pct = powerSource.batteryPercent() { status["batteryPct"] = pct }
+        if let lid = lidMonitor.isClosed { status["lidClosed"] = lid }
         if let at = autoStandDownAt ?? manualNapAt { status["napAt"] = Int(at.timeIntervalSince1970) }
         if isWalkingNow, let started = walkDetector.walkStartedAt {
             status["walkSecs"] = Int(Date().timeIntervalSince(started))
@@ -239,6 +241,15 @@ class MenuController: NSObject, NSMenuDelegate {
         powerSource.start()
         powerSource.onChange = { [weak self] src in self?.handlePowerSourceChange(src) }
 
+        // Lid watcher — the virtual display is lid-gated (spawns when the lid
+        // shuts, stands down when it opens). No-op on Macs without a lid.
+        lidMonitor.start()
+        lidMonitor.onChange = { [weak self] _ in
+            guard let self else { return }
+            self.reapplyScreenPolicy()
+            self.publishStatus()
+        }
+
         // Walk detector wiring — but don't start the accelerometer yet.
         // The hardware only powers on when the user engages Stay Up. No
         // point burning ~14 Hz of HID callbacks while StayUp is idle.
@@ -312,6 +323,7 @@ class MenuController: NSObject, NSMenuDelegate {
         stack.shutdown()
         walkDetector.stop()
         powerSource.stop()
+        lidMonitor.stop()
         active = false
         isWalkingNow = false
     }
@@ -686,7 +698,8 @@ class MenuController: NSObject, NSMenuDelegate {
         // so macOS can lock and show the login screen. See Settings → General.
         stack.apply(engaged: true,
                     keepScreenOn: Settings.virtualDisplayEnabled,
-                    hasExternalDisplay: hasRealExternalDisplay)
+                    hasExternalDisplay: hasRealExternalDisplay,
+                    lidClosed: lidMonitor.isClosed ?? true)
         active = true
         Settings.wasActive = (reason == .manual)
         playClick()
@@ -766,7 +779,8 @@ class MenuController: NSObject, NSMenuDelegate {
             guard let self, self.active else { return }
             self.stack.apply(engaged: true,
                              keepScreenOn: Settings.virtualDisplayEnabled,
-                             hasExternalDisplay: self.hasRealExternalDisplay)
+                             hasExternalDisplay: self.hasRealExternalDisplay,
+                             lidClosed: self.lidMonitor.isClosed ?? true)
         }
     }
 
@@ -849,10 +863,11 @@ class MenuController: NSObject, NSMenuDelegate {
     private func reapplyScreenPolicy() {
         guard active else { return }
         // The planner diffs against the live state, so an unchanged policy is a
-        // no-op and a keepScreenOn flip re-arms exactly the display layers.
+        // no-op and a keepScreenOn or lid flip re-arms exactly the display layers.
         stack.apply(engaged: true,
                     keepScreenOn: Settings.virtualDisplayEnabled,
-                    hasExternalDisplay: hasRealExternalDisplay)
+                    hasExternalDisplay: hasRealExternalDisplay,
+                    lidClosed: lidMonitor.isClosed ?? true)
     }
 
     /// Called from Settings `onChange` when the auto-mode toggle or

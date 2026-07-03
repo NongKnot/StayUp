@@ -29,12 +29,13 @@ final class SleepStack {
     var isEngaged: Bool { last?.engaged ?? false }
 
     /// Reconcile the live stack to this state. The one entry point: engage,
-    /// disengage, a screen-policy flip, and an external-display change are all
-    /// just this. No-ops cleanly when nothing changed. `Desired` stays an
-    /// internal detail — callers pass the three facts directly.
-    func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool) {
+    /// disengage, a screen-policy flip, an external-display change, and a lid
+    /// flip are all just this. No-ops cleanly when nothing changed. `Desired`
+    /// stays an internal detail — callers pass the four facts directly.
+    func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool, lidClosed: Bool = true) {
         let desired = SleepPlanner.Desired(
-            engaged: engaged, keepScreenOn: keepScreenOn, hasExternalDisplay: hasExternalDisplay)
+            engaged: engaged, keepScreenOn: keepScreenOn,
+            hasExternalDisplay: hasExternalDisplay, lidClosed: lidClosed)
         for action in SleepPlanner.plan(from: last, to: desired) { execute(action) }
         last = desired
     }

@@ -44,6 +44,7 @@ swiftc -target "$TARGET" \
     Sources/SleepStackPlanner.swift \
     Sources/SleepStack.swift \
     Sources/PowerSourceMonitor.swift \
+    Sources/LidMonitor.swift \
     Sources/ActivitySourceMonitor.swift \
     Sources/BundledSources.swift \
     Sources/ActivitySourceHookInstaller.swift \
