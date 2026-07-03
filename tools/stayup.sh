@@ -78,7 +78,7 @@ def render():
     age = int(time.time()) - s.get("ts", 0)
     print(f"StayUp — live{'' if ONCE else '   (Ctrl-C to quit)'}   · updated {age}s ago")
     print("═" * 52)
-    protected = "🟢 protected" if s.get("active") else "⚪️ not protecting"
+    protected = "🟢 ON" if s.get("active") else "⚪️ IDLE"
     print(f"Mode: {s.get('mode','?').upper():<5} StayUp: {protected}   Keep screen: {'on' if s.get('keepScreenOn') else 'off'}")
     nap = s.get("napAt")
     if nap:
@@ -97,9 +97,9 @@ def render():
     print("─" * 52)
     sources = s.get("sources", [])
     any_source = s.get("anySourceWorking")
-    print(f"Activity Sources (protecting Mac: {'YES' if any_source else 'no'}):")
+    print(f"Activity Sources (keeping Mac up: {'YES' if any_source else 'no'}):")
     if not sources:
-        print("  (none — tick a source in Settings → Advanced, and use Auto)")
+        print("  (none — tick a source in Settings → Auto, and use Auto mode)")
     for a in sources:
         line = f"  {adot(a)} {a.get('label','?'):<26} {a.get('state','?')}"
         if a.get("tools", 0) > 0: line += f" · {a['tools']} tool" + ("" if a['tools'] == 1 else "s")

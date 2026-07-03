@@ -40,8 +40,11 @@ working. Good Duck.
 
 - **Don't Let Work Die.** Close the lid. Duck keeps the Mac up.
 - **Ducking Auto.** Trusted local work starts. Duck wakes. Work stops. Duck naps.
+- **On, With A Timer.** On for 1–8 hours if you want. Duck naps when it fires.
 - **Walks With You.** Carry the Mac. Duck waddles. Important science.
 - **Don't Die.** Low battery? Duck taps out before the Mac faceplants.
+- **Honest About It.** On battery without the Helper, the menu says the
+  lid-closed promise is off. Duck does not fake coverage.
 
 <p align="center">
   <img src="./assets/readme-walk.gif" alt="The StayUp Duck walking" width="160">
@@ -83,7 +86,8 @@ Download StayUp from [getstayup.app](https://getstayup.app).
 
 First setup has a few macOS prompts:
 
-- **Welcome window:** Launch at Login, Helper setup, update preference.
+- **Welcome window:** a Turn Duck on button (try it first), Launch at Login,
+  Helper setup, update preference.
 - **Helper setup:** macOS approval plus one password prompt. This is the
   lid-closed-on-battery part.
 - **Sparkle updates:** optional signed automatic updates. Turn them on and Duck
@@ -108,7 +112,7 @@ open /Applications/StayUp.app
 For the real StayUp setup:
 
 ```text
-StayUp menu -> Settings -> Helper -> Set up
+StayUp menu -> Settings -> General -> Helper -> Set up
 ```
 
 ## ⚡ Auto Mode
@@ -121,9 +125,13 @@ work stops  -> grace timer
 quiet again -> Duck down
 ```
 
-Starter sources: Claude, Codex, Cursor, LM Studio, and Ollama. Sources are
+Bundled sources: Claude Code, Codex, Cursor, Gemini CLI, Qwen Code, Copilot
+CLI, and OpenCode report their own activity; Ollama and LM Studio are observed.
+Anything else can be added from Settings → Auto → Add Source. Sources are
 local and opt-in. Cloud/web work somewhere else does not keep this Mac awake
 unless a local thing writes a heartbeat.
+
+Work stops → Duck waits your "Nap after" grace (5 min–3 h) → Duck naps.
 
 ## 🔒 Privacy
 
@@ -139,7 +147,7 @@ Security notes live in [SECURITY.md](./SECURITY.md).
 
 Polite path. Good Duck:
 
-1. Open StayUp -> Settings -> Helper -> Uninstall Helper.
+1. Open StayUp -> Settings -> General -> Helper -> Uninstall Helper.
 2. Quit StayUp.
 3. Drag `/Applications/StayUp.app` to the Trash.
 

@@ -99,7 +99,7 @@ enum Settings {
 
     /// Which Activity Sources are enabled by source name.
     /// Default **none**: nothing can wake Auto until you pick at least one in
-    /// Settings → Advanced.
+    /// Settings → Auto.
     static var enabledSources: Set<String> {
         get { Set((d.array(forKey: "stayup.enabledSources") as? [String]) ?? []) }
         set { d.set(Array(newValue).sorted(), forKey: "stayup.enabledSources") }

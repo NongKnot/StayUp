@@ -24,6 +24,7 @@ class MenuController: NSObject, NSMenuDelegate {
     private var statusItem:        NSStatusItem!
     private var menu:              NSMenu!
     private var statusMenuItem:    NSMenuItem!
+    private var coverageItem:      NSMenuItem!
     private var offItem:           NSMenuItem!
     private var onItem:            NSMenuItem!
     private var autoItem:          NSMenuItem!
@@ -63,6 +64,11 @@ class MenuController: NSObject, NSMenuDelegate {
     /// countdown, and is published to `~/.stayup/nap-at` so external tools (the
     /// looker) can show the same countdown.
     private var autoStandDownAt: Date? { didSet { publishStatus() } }
+
+    /// Manual timed-On ("On → For 2 hours"). Duck naps (mode → Off) when it
+    /// fires. Cleared by any mode change, disengage, or a plain "On".
+    private var manualNapTimer: Timer?
+    private var manualNapAt: Date?
 
     /// Publish the *entire* live state to ~/.stayup/status.json so one external
     /// renderer (tools/stayup.sh, also the About left-eye tester) can show
@@ -123,7 +129,7 @@ class MenuController: NSObject, NSMenuDelegate {
             status["sleepDisabled"] = sleepDisabled
         }
         if let pct = powerSource.batteryPercent() { status["batteryPct"] = pct }
-        if let at = autoStandDownAt { status["napAt"] = Int(at.timeIntervalSince1970) }
+        if let at = autoStandDownAt ?? manualNapAt { status["napAt"] = Int(at.timeIntervalSince1970) }
         if isWalkingNow, let started = walkDetector.walkStartedAt {
             status["walkSecs"] = Int(Date().timeIntervalSince(started))
             status["walkSteps"] = walkDetector.sessionSteps
@@ -323,6 +329,14 @@ class MenuController: NSObject, NSMenuDelegate {
         statusMenuItem = NSMenuItem(title: "STAYUP · IDLE", action: nil, keyEquivalent: "")
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
+
+        // Honesty line: engaged on battery without the Helper means the
+        // lid-closed promise does NOT hold. Say so instead of looking safe.
+        // Click-through opens Settings → General (where Helper setup lives).
+        coverageItem = NSMenuItem(title: "", action: #selector(showSettings), keyEquivalent: "")
+        coverageItem.target = self
+        coverageItem.isHidden = true
+        menu.addItem(coverageItem)
         menu.addItem(.separator())
 
         // Hook-reconnect reminder — hidden until a launch check finds an agent's
@@ -344,6 +358,24 @@ class MenuController: NSObject, NSMenuDelegate {
         onItem   = NSMenuItem(title: "On",   action: #selector(selectOn),   keyEquivalent: "")
         autoItem = NSMenuItem(title: "Auto", action: #selector(selectAuto), keyEquivalent: "")
         for it in [offItem, onItem, autoItem] { it?.target = self; menu.addItem(it!) }
+
+        // Optional timer submenu on On. macOS doesn't fire a parent item's
+        // action once it has a submenu, so "Until you turn it off" is the
+        // plain-On entry.
+        let onSub = NSMenu()
+        onSub.autoenablesItems = false
+        let untilOff = NSMenuItem(title: "Until you turn it off", action: #selector(selectOn), keyEquivalent: "")
+        untilOff.target = self
+        onSub.addItem(untilOff)
+        onSub.addItem(.separator())
+        for (title, secs) in [("For 1 hour", 3600), ("For 2 hours", 7200),
+                              ("For 4 hours", 14400), ("For 8 hours", 28800)] {
+            let it = NSMenuItem(title: title, action: #selector(selectOnTimed(_:)), keyEquivalent: "")
+            it.target = self
+            it.tag = secs
+            onSub.addItem(it)
+        }
+        onItem.submenu = onSub
         menu.addItem(.separator())
 
         // Keep screen on (vs let the Mac lock). Mirrors Settings → General.
@@ -396,7 +428,7 @@ class MenuController: NSObject, NSMenuDelegate {
         stopMenuRefreshTimer()
         let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             guard let self else { return }
-            guard self.autoStandDownAt != nil || self.isWalkingNow else { return }
+            guard self.autoStandDownAt != nil || self.manualNapAt != nil || self.isWalkingNow else { return }
             self.updateMenuLiveText()
         }
         RunLoop.main.add(t, forMode: .common)
@@ -535,8 +567,8 @@ class MenuController: NSObject, NSMenuDelegate {
             let content = UNMutableNotificationContent()
             content.title = names.count == 1 ? "Reconnected \(joined)" : "Reconnected your AI sources"
             content.body = names.count == 1
-                ? "\(joined)’s config had changed and dropped StayUp’s activity hook. We re-added it so Auto keeps working."
-                : "\(joined) changed their configs and dropped StayUp’s activity hooks. We re-added them so Auto keeps working."
+                ? "\(joined)’s config had changed and dropped StayUp’s activity hook. Duck re-added it so Auto keeps working."
+                : "\(joined) changed their configs and dropped StayUp’s activity hooks. Duck re-added them so Auto keeps working."
             let req = UNNotificationRequest(
                 identifier: "stayup.hookReconnect", content: content, trigger: nil)
             center.add(req)
@@ -558,9 +590,9 @@ class MenuController: NSObject, NSMenuDelegate {
         if Self.isTestMode { return }
         let a = NSAlert()
         a.messageText     = "Auto is on, but source connection failed"
-        a.informativeText = "StayUp is still watching observed Activity Sources like model servers and app workflow signals. Reported CLI sources may not report activity until the hook connection succeeds.\n\n\(error)"
+        a.informativeText = "StayUp is still watching observed Activity Sources like model servers and app workflow signals. Reported CLI sources may not report activity until the hook connection succeeds.\n\nTry again from Settings → Auto → Connect.\n\n\(error.localizedDescription)"
         a.alertStyle      = .warning
-        a.addButton(withTitle: "OK")
+        a.addButton(withTitle: "Got it")
         NSApp.activate(ignoringOtherApps: true)
         a.runModal()
     }
@@ -578,6 +610,7 @@ class MenuController: NSObject, NSMenuDelegate {
     /// Apply a mode (from the menu radios or the Settings segmented control).
     /// Built on the existing engage/disengage/setAutoMode seam.
     func setMode(_ mode: Mode) {
+        cancelManualNap()   // any explicit mode choice resets a pending timed-On
         switch mode {
         case .off:
             setAutoMode(false)              // manual Off exits Auto
@@ -605,6 +638,34 @@ class MenuController: NSObject, NSMenuDelegate {
     @objc private func selectOff()  { setMode(.off) }
     @objc private func selectOn()   { setMode(.on) }
     @objc private func selectAuto() { setMode(.auto) }
+
+    /// "On → For N hours". Plain On, plus a one-shot nap timer.
+    @objc private func selectOnTimed(_ sender: NSMenuItem) {
+        setMode(.on)
+        scheduleManualNap(TimeInterval(sender.tag))
+        updateUI()
+    }
+
+    private func scheduleManualNap(_ secs: TimeInterval) {
+        cancelManualNap()
+        manualNapAt = Date(timeIntervalSinceNow: secs)
+        let t = Timer(timeInterval: secs, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.manualNapTimer = nil
+            self.manualNapAt = nil
+            guard self.active, self.engageReason == .manual else { return }
+            self.setMode(.off)
+        }
+        RunLoop.main.add(t, forMode: .common)
+        manualNapTimer = t
+        publishStatus()
+    }
+
+    private func cancelManualNap() {
+        manualNapTimer?.invalidate()
+        manualNapTimer = nil
+        manualNapAt = nil
+    }
 
     @objc private func toggleKeepScreen() {
         Settings.virtualDisplayEnabled.toggle()
@@ -659,6 +720,7 @@ class MenuController: NSObject, NSMenuDelegate {
     private func disengage() {
         guard active else { return }
         cancelAutoGrace()
+        cancelManualNap()
         active = false
         Settings.wasActive = false
         stack.apply(engaged: false, keepScreenOn: false, hasExternalDisplay: false)
@@ -884,6 +946,8 @@ class MenuController: NSObject, NSMenuDelegate {
             else if !desired && currently { self.disableLaunchAtLogin() }
         }
         w.loginIsEnabled = { [weak self] in self?.isLaunchAtLoginEnabled() ?? false }
+        w.turnOn    = { [weak self] in self?.setMode(.on) }
+        w.isEngaged = { [weak self] in self?.active ?? false }
         w.onDismiss = { [weak self] in self?.updateUI() }
         welcome = w
         w.show()
@@ -1277,18 +1341,36 @@ class MenuController: NSObject, NSMenuDelegate {
         publishStatusThrottled()   // tester file refreshes on the 5s throttle from animation ticks; real state changes publish directly
     }
 
-    /// Status line — staged + colour-coded, dot leading. Walking > sleeping
-    /// soon (auto countdown) > source-running > protected > not protecting.
+    /// Status line — staged + colour-coded, dot leading, BRAND.md words
+    /// (ON / IDLE, naps — never "protected"). Auto countdown > timed-On
+    /// countdown > source-running > plain ON > IDLE.
     private func updateStatusLine() {
         if !active {
-            statusMenuItem.attributedTitle = dotTitle("○", "STAYUP · not protecting", on: false)
+            statusMenuItem.attributedTitle = dotTitle("○", "STAYUP · IDLE", on: false)
         } else if let at = autoStandDownAt, at.timeIntervalSinceNow > 0 {
             let secs = max(0, Int(at.timeIntervalSinceNow))
-            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · protected · naps in \(formatMMSS(secs))", on: true, color: .systemOrange)
+            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON · naps in \(formatMMSS(secs))", on: true, color: .systemOrange)
+        } else if let at = manualNapAt, at.timeIntervalSinceNow > 0 {
+            let secs = max(0, Int(at.timeIntervalSinceNow))
+            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON · naps in \(formatMMSS(secs))", on: true, color: .systemGreen)
         } else if engageReason == .auto && sourceMonitor.isAnySourceWorking {
-            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · protected · source active", on: true, color: .systemGreen)
+            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON · sources working", on: true, color: .systemGreen)
         } else {
-            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · protected", on: true, color: .systemGreen)
+            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON", on: true, color: .systemGreen)
+        }
+        updateCoverageItem()
+    }
+
+    /// The lid-closed promise on battery needs the Helper. When the user is
+    /// engaged, on battery, and the Helper isn't enabled, the "safe" look
+    /// would be a lie — show the gap and route the click to Settings.
+    private func updateCoverageItem() {
+        let uncovered = active
+            && powerSource.current == .battery
+            && StayUpHelper.shared.status != .enabled
+        coverageItem.isHidden = !uncovered
+        if uncovered {
+            coverageItem.title = "⚠︎ Lid-closed not covered on battery — set up Helper"
         }
     }
 
@@ -1313,10 +1395,10 @@ class MenuController: NSObject, NSMenuDelegate {
         let dotColor: NSColor = anyRun ? .systemGreen : (releaseIn > 0 ? .systemOrange : (anyWait ? .systemOrange : .systemGray))
         let label: String = {
             if running > 0 {
-                return running == 1 ? "Activity Sources: 1 protecting" : "Activity Sources: \(running) protecting"
+                return running == 1 ? "Activity Sources: 1 working" : "Activity Sources: \(running) working"
             }
             if releaseIn > 0 {
-                return "Activity Sources: releasing"
+                return "Activity Sources: napping soon"
             }
             if anyWait { return "Activity Sources: waiting" }
             return "Activity Sources: watching"
@@ -1336,21 +1418,15 @@ class MenuController: NSObject, NSMenuDelegate {
 
         let title: String
         if sessions.contains(where: { $0.working }) {
-            title = "Auto is protecting from local activity"
+            title = "Duck's up — local work running"
         } else if let at = autoStandDownAt, at.timeIntervalSinceNow > 0 {
-            title = "Auto is waiting before release"
+            title = "Napping soon — no work right now"
         } else {
-            title = "Auto is watching trusted sources"
+            title = "Watching for local work"
         }
         let header = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         header.isEnabled = false
         sub.addItem(header)
-
-        if autoStandDownAt != nil {
-            let release = NSMenuItem(title: "Release timer is running", action: nil, keyEquivalent: "")
-            release.isEnabled = false
-            sub.addItem(release)
-        }
 
         if sessions.isEmpty {
             let empty = NSMenuItem(title: "No local activity right now", action: nil, keyEquivalent: "")
@@ -1448,9 +1524,11 @@ class MenuController: NSObject, NSMenuDelegate {
     }
 
     private func formatMMSS(_ totalSeconds: Int) -> String {
-        let m = totalSeconds / 60
+        let h = totalSeconds / 3600
+        let m = (totalSeconds % 3600) / 60
         let s = totalSeconds % 60
-        return String(format: "%d:%02d", m, s)
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s)
+                     : String(format: "%d:%02d", m, s)
     }
 
     private func abbrevTokens(_ n: Int) -> String {

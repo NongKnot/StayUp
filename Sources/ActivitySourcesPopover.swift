@@ -79,7 +79,7 @@ private final class ActivitySourcesContentVC: NSViewController {
     func render(_ sessions: [ActivitySourceSession], napIn: TimeInterval?) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        let header = NSTextField(labelWithString: sessions.isEmpty ? "No activity sources detected" : "Local Activity Sources")
+        let header = NSTextField(labelWithString: sessions.isEmpty ? "No Activity Sources detected" : "Activity Sources")
         header.font = .systemFont(ofSize: 11, weight: .semibold)
         header.textColor = .secondaryLabelColor
         stack.addArrangedSubview(header)

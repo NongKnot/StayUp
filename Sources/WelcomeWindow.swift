@@ -22,6 +22,8 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
     private var updateCheck:      NSButton!
     private var helperButton:     NSButton!
     private var helperStatusLabel: NSTextField!
+    private var tryButton:        NSButton!
+    private var tryStatusLabel:   NSTextField!
 
     /// Caller-provided action that flips the SMAppService.mainApp
     /// registration. Bound by MenuController so all login-item plumbing
@@ -36,19 +38,27 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
     /// the menu in case the welcome flipped Launch-at-Login or Helper state.
     var onDismiss: (() -> Void)?
 
+    /// "Turn Duck on" — engage before asking for any permission, so a fresh
+    /// install feels the product before the trust decisions. Bound by
+    /// MenuController to `setMode(.on)`; `isEngaged` reads the live state so
+    /// a replayed welcome reflects reality.
+    var turnOn: (() -> Void)?
+    var isEngaged: (() -> Bool)?
+
     func show() {
         if window == nil { window = build() }
         window?.center()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         syncHelperStatus()
+        syncTryState()
     }
 
     // MARK: - Build
 
     private func build() -> NSWindow {
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 470),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 560),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -95,6 +105,23 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         introRow.addArrangedSubview(icon)
         introRow.addArrangedSubview(introText)
         stack.addArrangedSubview(introRow)
+        stack.addArrangedSubview(divider())
+
+        // ── 0. Try it — value before permissions ──
+        let tryRow = NSStackView()
+        tryRow.orientation = .horizontal
+        tryRow.spacing     = 10
+        tryRow.alignment   = .centerY
+        tryButton = NSButton(title: "Turn Duck on",
+                             target: self, action: #selector(tryPressed))
+        tryButton.bezelStyle = .rounded
+        tryStatusLabel = NSTextField(labelWithString: "")
+        tryStatusLabel.font = NSFont.systemFont(ofSize: 11)
+        tryStatusLabel.textColor = .systemGreen
+        tryRow.addArrangedSubview(tryButton)
+        tryRow.addArrangedSubview(tryStatusLabel)
+        stack.addArrangedSubview(tryRow)
+        stack.addArrangedSubview(desc("One click. Duck holds the Mac awake until you say Off."))
         stack.addArrangedSubview(divider())
 
         // ── 1. Launch at Login ──
@@ -219,13 +246,32 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
         }
     }
 
+    private func syncTryState() {
+        guard tryButton != nil else { return }
+        if isEngaged?() ?? false {
+            tryButton.title = "Duck's up"
+            tryButton.isEnabled = false
+            tryStatusLabel.stringValue = "Check the menu bar."
+        } else {
+            tryButton.title = "Turn Duck on"
+            tryButton.isEnabled = true
+            tryStatusLabel.stringValue = ""
+        }
+    }
+
     /// Re-sync helper status when the welcome window comes back to focus
     /// after the user approved in System Settings → Login Items.
     func windowDidBecomeKey(_ notification: Notification) {
         syncHelperStatus()
+        syncTryState()
     }
 
     // MARK: - Actions
+
+    @objc private func tryPressed() {
+        turnOn?()
+        syncTryState()
+    }
 
     @objc private func loginToggled() {
         // Apply immediately so the user sees System Settings → Login Items
@@ -251,7 +297,12 @@ final class WelcomeWindow: NSObject, NSWindowDelegate {
             helper.openLoginItemsPane()
         case .notRegistered, .notFound:
             do { try helper.register() }
-            catch { /* user can retry from Settings later */ }
+            catch {
+                // Silent failure kills the feature people came for — say it.
+                helperStatusLabel.stringValue = "Couldn't set up — try again from Settings."
+                helperStatusLabel.textColor   = .systemRed
+                return
+            }
             if helper.status == .requiresApproval {
                 helper.openLoginItemsPane()
             }

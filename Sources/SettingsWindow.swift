@@ -50,6 +50,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     private var walkCheck:       NSButton!
     private var walkHardwareNote: NSTextField!
     private var modeControl:     NSSegmentedControl!
+    private var layersBanner:    NSTextField!
     private var autoGracePopup:  NSPopUpButton!
     private var screenLockCheck: NSButton!
     private var sourceSummary: NSTextField!
@@ -161,8 +162,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             item.label = "General"
             item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "General")
         case .stayupAdvanced:
-            item.label = "Advanced"
-            item.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Advanced")
+            // Identifier stays `stayupAdvanced`; user-facing name is "Auto" —
+            // the flagship feature shouldn't hide behind the word "Advanced".
+            item.label = "Auto"
+            item.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Auto")
         case .stayupWalk:
             item.label = "Walk"
             item.image = NSImage(systemSymbolName: "figure.walk", accessibilityDescription: "Walk")
@@ -199,6 +202,17 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     private func buildGeneralView() -> NSView {
         let (container, stack) = sectionContainer()
 
+        // Coverage banner — honest layer count. Green when the Helper is in
+        // (lid-closed battery covered), orange when it's the missing layer.
+        layersBanner = NSTextField(labelWithString: "")
+        layersBanner.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        layersBanner.maximumNumberOfLines = 0
+        layersBanner.lineBreakMode = .byWordWrapping
+        layersBanner.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(layersBanner)
+        layersBanner.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        addGap(in: stack)
+
         // Mode — the one switch (mirrored in the menu-bar dropdown).
         let modeLabel = NSTextField(labelWithString: "Mode")
         modeLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
@@ -214,6 +228,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
         addGap(in: stack)
 
+        // Keep screen on (vs let the Mac lock). Mirrors the menu toggle.
+        screenLockCheck = NSButton(checkboxWithTitle: "Keep screen on",
+                                   target: self, action: #selector(screenLockToggled))
+        stack.addArrangedSubview(screenLockCheck)
+        addDesc("Off lets the Mac lock while work continues.", in: stack)
+
+        addGap(in: stack)
+
         loginCheck = NSButton(checkboxWithTitle: "Launch at Login",
                               target: self, action: #selector(loginToggled))
         stack.addArrangedSubview(loginCheck)
@@ -225,12 +247,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
                                 target: self, action: #selector(dontDieToggled))
         stack.addArrangedSubview(dontDieCheck)
 
-        // Inline sub-row: "Disengage at: ▾ 10%"
+        // Inline sub-row: "Nap at: ▾ 10%"
         let dontDieRow = NSStackView()
         dontDieRow.orientation = .horizontal
         dontDieRow.spacing     = 8
         dontDieRow.alignment   = .centerY
-        let dontDieLabel = NSTextField(labelWithString: "Disengage at:")
+        let dontDieLabel = NSTextField(labelWithString: "Nap at:")
         dontDieLabel.font = NSFont.systemFont(ofSize: 11)
         dontDieLabel.textColor = .secondaryLabelColor
         dontDiePopup = NSPopUpButton()
@@ -256,7 +278,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         ])
         stack.addArrangedSubview(ddIndent)
         ddIndent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        addDesc("Duck stands down before low battery.", in: stack)
+        addDesc("Duck naps before the battery dies.", in: stack)
 
         // Helper — the one layer that truly survives battery + lid-closed on
         // Apple Silicon (root daemon → pmset disablesleep).
@@ -275,20 +297,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         return container
     }
 
-    /// Advanced tab — keep-screen-on + Activity Source tuning (Auto mode is
-    /// set in General -> Mode).
+    /// Auto tab — Activity Source tuning. (Mode switch + keep-screen-on live
+    /// in General.)
     private func buildAdvancedView() -> NSView {
         let (container, stack) = sectionContainer()
 
-        // Keep screen on (vs let the Mac lock).
-        screenLockCheck = NSButton(checkboxWithTitle: "Keep screen on",
-                                   target: self, action: #selector(screenLockToggled))
-        stack.addArrangedSubview(screenLockCheck)
-        addDesc("Off lets the Mac lock while work continues.", in: stack)
-
         // Activity Sources — one user-facing workflow. Some tools report their
         // own activity; others are observed by local file/log/socket/CPU clues.
-        addSeparator(in: stack)
         let aiHeader = NSTextField(labelWithString: "Activity Sources")
         aiHeader.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         stack.addArrangedSubview(aiHeader)
@@ -308,14 +323,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         graceRow.orientation = .horizontal
         graceRow.spacing     = 8
         graceRow.alignment   = .centerY
-        let graceLabel = NSTextField(labelWithString: "After stop:")
+        let graceLabel = NSTextField(labelWithString: "Nap after:")
         graceLabel.font = NSFont.systemFont(ofSize: 11)
         graceLabel.textColor = .secondaryLabelColor
         autoGracePopup = NSPopUpButton()
         autoGracePopup.target = self
         autoGracePopup.action = #selector(autoGraceChanged)
         for (title, secs) in [("5 min", 300), ("15 min", 900), ("30 min", 1800),
-                              ("60 min", 3600), ("180 min", 10800)] {
+                              ("1 hour", 3600), ("3 hours", 10800)] {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             item.tag = secs
             autoGracePopup.menu?.addItem(item)
@@ -335,12 +350,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         ])
         stack.addArrangedSubview(graceIndent)
         graceIndent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        addDesc("Duck waits before standing down.", in: stack)
+        addDesc("Duck waits this long after work stops before napping.", in: stack)
 
         // Which sources to trust — a scrollable list that scales as users add
         // more sources. Nothing's on until the user ticks it.
         addGap(in: stack, height: 10)
-        let detectLabel = NSTextField(labelWithString: "Trusted Sources")
+        let detectLabel = NSTextField(labelWithString: "Sources")
         detectLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         detectLabel.textColor = .secondaryLabelColor
         stack.addArrangedSubview(detectLabel)
@@ -391,7 +406,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
         sourceActionNote = NSTextField(labelWithString: "")
         sourceActionNote.font = NSFont.systemFont(ofSize: 10)
-        sourceActionNote.textColor = .tertiaryLabelColor
+        sourceActionNote.textColor = .secondaryLabelColor
         sourceActionNote.maximumNumberOfLines = 2
         sourceActionNote.lineBreakMode = .byTruncatingTail
         sourceActionNote.translatesAutoresizingMaskIntoConstraints = false
@@ -505,7 +520,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
         let sources = ExternalSourceWatcher.configuredSourceInfo()
         guard !sources.isEmpty else {
-            let empty = NSTextField(labelWithString: "No sources yet. Copy the setup prompt or add source.json, then refresh.")
+            let empty = NSTextField(labelWithString: "No sources yet. Click Add Source for the setup prompt, then Refresh.")
             empty.font = NSFont.systemFont(ofSize: 11)
             empty.textColor = .secondaryLabelColor
             empty.maximumNumberOfLines = 0
@@ -533,7 +548,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
             let note = NSTextField(labelWithString: Self.sourceStatus(for: source, enabled: enabled))
             note.font = NSFont.systemFont(ofSize: 10)
-            note.textColor = .tertiaryLabelColor
+            note.textColor = .secondaryLabelColor
             note.maximumNumberOfLines = 1
             note.lineBreakMode = .byTruncatingTail
             note.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -551,7 +566,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
             sourceDeleteTargets[source.folderSlug] = source
             var actions: [NSView] = []
-            if Self.sourceNeedsManagedConnection(source) {
+            // Outside Auto, hooks are uninstalled by design and reinstall
+            // automatically when Auto turns on — a Connect button there is
+            // just noise that implies missing user work.
+            if Settings.autoSourceEnabled, Self.sourceNeedsManagedConnection(source) {
                 let connect = NSButton(title: "Connect", target: self, action: #selector(connectSourceHooks(_:)))
                 connect.bezelStyle = .rounded
                 connect.controlSize = .small
@@ -585,9 +603,12 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
     private static func sourceStatus(for source: ExternalSourceWatcher.ConfiguredSourceInfo, enabled: Bool) -> String {
         if enabled {
+            if sourceNeedsManagedConnection(source) && !Settings.autoSourceEnabled {
+                return "Trusted — connects when Auto is on"
+            }
             return "Trusted for Auto"
         }
-        if sourceNeedsManagedConnection(source) {
+        if sourceNeedsManagedConnection(source) && Settings.autoSourceEnabled {
             return "Needs connection"
         }
         return "Available"
@@ -632,6 +653,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         eye.isBordered = false
         eye.isTransparent = true
         eye.toolTip = "🔧 StayUp live tester"
+        eye.setAccessibilityLabel("Duck's left eye — opens the live tester")
         eye.translatesAutoresizingMaskIntoConstraints = false
         icon.addSubview(eye)
         NSLayoutConstraint.activate([
@@ -926,7 +948,7 @@ why_this_means_local_work:
 false_positives:
 false_negatives:
 user_instruction:
-If source_method is reported, add hooks to the tool's own hook/config file. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh; each hook should call that wrapper with one simple action: working, not-working, or stop. Advanced mappings may use turn-start, active, waiting, tool-begin, and tool-end only when the tool exposes reliable paired lifecycle events. The wrapper should set and export STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, optional STAYUP_SESSION_ID, optional STAYUP_SOURCE_PID if the tool exposes its long-lived process id, and optional STAYUP_SOURCE_TRANSCRIPT_PREFIXES if the hook payload includes a source-owned transcript_path or similar receipt root, then exec ~/.stayup/bin/stayup-source-hook.sh "$@". Also create ~/.stayup/sources/<source-slug>/source.json with schema app.getstayup.activity-source.v1, type reported, method reported, name STAYUP_SOURCE_KEY, and displayName STAYUP_SOURCE_DISPLAY so StayUp can show the source before the first hook fires. If source_method is file, logPattern, socket, or process, save observed_source as ~/.stayup/sources/<source-slug>/source.json. Then open StayUp Settings -> Advanced, click Refresh, tick the source, set Mode to Auto, and choose the After stop grace period.
+If source_method is reported, add hooks to the tool's own hook/config file. Prefer a short source-specific wrapper under ~/.stayup/bin/stayup-source-hook-<source-slug>.sh; each hook should call that wrapper with one simple action: working, not-working, or stop. Advanced mappings may use turn-start, active, waiting, tool-begin, and tool-end only when the tool exposes reliable paired lifecycle events. The wrapper should set and export STAYUP_SOURCE_NAME, STAYUP_SOURCE_SLUG, STAYUP_SOURCE_DISPLAY, STAYUP_SOURCE_KEY, optional STAYUP_SESSION_ID, optional STAYUP_SOURCE_PID if the tool exposes its long-lived process id, and optional STAYUP_SOURCE_TRANSCRIPT_PREFIXES if the hook payload includes a source-owned transcript_path or similar receipt root, then exec ~/.stayup/bin/stayup-source-hook.sh "$@". Also create ~/.stayup/sources/<source-slug>/source.json with schema app.getstayup.activity-source.v1, type reported, method reported, name STAYUP_SOURCE_KEY, and displayName STAYUP_SOURCE_DISPLAY so StayUp can show the source before the first hook fires. If source_method is file, logPattern, socket, or process, save observed_source as ~/.stayup/sources/<source-slug>/source.json. Then open StayUp Settings -> Auto, click Refresh, tick the source, set Mode to Auto, and choose the Nap after grace period.
 For Codex CLI / IDE, use the canonical source identity and hook mapping above instead of creating a separate Codex App source.
 If no supported source is strong enough, say what support would make it detectable, such as a native heartbeat hook, task-state API, lifecycle log, active-work socket, or parent-scoped child-process tracking.
 """
@@ -988,7 +1010,7 @@ If no supported source is strong enough, say what support would make it detectab
         switch StayUpHelper.shared.status {
         case .enabled:
             if sleepDisabled == true {
-                helperStatus.stringValue = "Ready. SleepDisabled is active now."
+                helperStatus.stringValue = "Ready — holding sleep off right now."
             } else {
                 helperStatus.stringValue = "Ready for lid-closed battery mode."
             }
@@ -1006,6 +1028,21 @@ If no supported source is strong enough, say what support would make it detectab
             helperStatus.stringValue = "Unknown"
             helperStatus.textColor   = .secondaryLabelColor
             helperButton.title       = "Set up"
+        }
+        syncLayersBanner()
+    }
+
+    /// Honest layer count at the top of General. The four in-app layers are
+    /// always available; the Helper is the one that can be missing — and it's
+    /// the one that owns the lid-closed-on-battery promise.
+    private func syncLayersBanner() {
+        guard layersBanner != nil else { return }
+        if StayUpHelper.shared.status == .enabled {
+            layersBanner.stringValue = "● All 5 layers ready — lid-closed battery covered."
+            layersBanner.textColor   = .systemGreen
+        } else {
+            layersBanner.stringValue = "● 4 of 5 layers — set up the Helper below for the lid-closed battery case."
+            layersBanner.textColor   = .systemOrange
         }
     }
 
@@ -1054,7 +1091,7 @@ If no supported source is strong enough, say what support would make it detectab
     @objc private func sourceToggled(_ sender: NSButton) {
         let key = sender.identifier?.rawValue ?? sender.title
         let enabling = sender.state == .on
-        if enabling,
+        if enabling, Settings.autoSourceEnabled,
            let source = ExternalSourceWatcher.configuredSourceInfo().first(where: { $0.key == key }),
            Self.sourceNeedsManagedConnection(source) {
             guard confirmConnectSourceHooks(source) else {
@@ -1069,7 +1106,7 @@ If no supported source is strong enough, say what support would make it detectab
             } catch {
                 sender.state = .off
                 Settings.setSource(key, enabled: false)
-                sourceActionNote.stringValue = "Could not connect \(source.displayName): \(error.localizedDescription)"
+                sourceActionNote.stringValue = "Could not connect \(source.displayName): \(error.localizedDescription) Try Connect again."
                 rebuildSourceList()
                 return
             }
@@ -1079,7 +1116,8 @@ If no supported source is strong enough, say what support would make it detectab
         rebuildSourceList()
         if enabling,
            let source = ExternalSourceWatcher.configuredSourceInfo().first(where: { $0.key == key }),
-           ActivitySourceHookInstaller.canManageHooks(for: source.key) {
+           ActivitySourceHookInstaller.canManageHooks(for: source.key),
+           ActivitySourceHookInstaller.isHookInstalled(for: source.key) {
             sourceActionNote.stringValue = Self.trustNote(for: source)
         }
         onChange?()
@@ -1102,7 +1140,7 @@ If no supported source is strong enough, say what support would make it detectab
 Use this when Auto should watch a local app or tool.
 
 1. Copy the setup prompt.
-2. Open a fresh frontier AI or coding assistant session.
+2. Open a fresh AI assistant session (Claude, ChatGPT, or a coding agent).
 3. Paste the prompt and follow its steps.
 4. Come back here, click Refresh, tick the new source, then set Mode to Auto.
 
@@ -1202,7 +1240,7 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
             sourceActionNote.stringValue = Self.connectedHookNote(for: source)
             onChange?()
         } catch {
-            sourceActionNote.stringValue = "Could not connect \(source.displayName): \(error.localizedDescription)"
+            sourceActionNote.stringValue = "Could not connect \(source.displayName): \(error.localizedDescription) Try Connect again."
         }
     }
     /// Launch the bundled live tester (tools/stayup.sh) in Terminal. `open -a`

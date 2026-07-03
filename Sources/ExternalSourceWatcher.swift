@@ -101,7 +101,7 @@ final class ExternalSourceWatcher {
                 removeHeartbeat(s)
                 continue
             }
-            // Each observed source is opt-in (Settings → Advanced). A disabled
+            // Each observed source is opt-in (Settings → Auto). A disabled
             // one is treated as idle, so its marker is cleaned up.
             let live = Settings.isSourceEnabled(s.name) && isActive(s)
             live ? writeHeartbeat(s) : removeHeartbeat(s)
@@ -585,7 +585,7 @@ There are two ways to add a local tool.
 
 Use this when the tool cannot report activity directly. Copy
 `SOURCE-TEMPLATE.json` into a new folder as `source.json`, edit it, then open
-StayUp Settings -> Advanced -> Refresh and tick the source.
+StayUp Settings -> Auto -> Refresh and tick the source.
 
 2. Reported source, for tools that can report working/not-working
 
@@ -700,8 +700,8 @@ You can also create `source.json` before the first hook runs so the source
 appears in Settings immediately. Do not create files under `active/` by hand
 except for a deliberate test heartbeat.
 
-Then open StayUp Settings -> Advanced -> Refresh, tick the source, set Mode to
-Auto, and choose the After stop grace period.
+Then open StayUp Settings -> Auto -> Refresh, tick the source, set Mode to
+Auto, and choose the Nap after grace period.
 """)
     }
 
