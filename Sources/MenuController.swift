@@ -206,6 +206,16 @@ class MenuController: NSObject, NSMenuDelegate {
     private static let BATTERY_POLL_SECS: TimeInterval = 30.0
     private static let WALK_ANIM_INTERVAL: TimeInterval = 0.25  // 4 fps stride cadence
 
+    /// Settle delay before a lid flip or display reshuffle may move the
+    /// virtual display. Spawning/destroying a CGVirtualDisplay *while* macOS
+    /// is still reconfiguring displays for the same event (built-in going
+    /// on/offline at a clamshell flip) crashed the Dock — 25 identical
+    /// SIGABRTs on 2026-07-04, zero the prior week, reproduced by lid
+    /// cycling. Every trigger reschedules, so the apply runs once, this long
+    /// after the *last* topology event, when the display list is quiet.
+    private static let SCREEN_SETTLE_SECS: TimeInterval = 1.5
+    private var screenPolicyReapply: DispatchWorkItem?
+
     /// Set by the test harness via the `STAYUP_TEST=1` env var. When set,
     /// Don't Die logs to stderr instead of opening a modal alert (so signal-
     /// driven tests don't deadlock waiting for a user to click "Got it").
@@ -243,10 +253,12 @@ class MenuController: NSObject, NSMenuDelegate {
 
         // Lid watcher — the virtual display is lid-gated (spawns when the lid
         // shuts, stands down when it opens). No-op on Macs without a lid.
+        // Deferred, never synchronous: the flip races macOS's own clamshell
+        // display reconfiguration (see SCREEN_SETTLE_SECS).
         lidMonitor.start()
         lidMonitor.onChange = { [weak self] _ in
             guard let self else { return }
-            self.reapplyScreenPolicy()
+            self.scheduleScreenPolicyReapply()
             self.publishStatus()
         }
 
@@ -773,16 +785,29 @@ class MenuController: NSObject, NSMenuDelegate {
     private func handleDisplayChange() {
         guard active else { return }
         guard Settings.virtualDisplayEnabled else { return }  // screen-lock mode: no virtual display
-        // Debounce: the screen list churns during transient reshuffles. Re-apply
-        // the current desired state — the planner adds/drops only the virtual
-        // display as the real-external presence changes.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, self.active else { return }
-            self.stack.apply(engaged: true,
-                             keepScreenOn: Settings.virtualDisplayEnabled,
-                             hasExternalDisplay: self.hasRealExternalDisplay,
-                             lidClosed: self.lidMonitor.isClosed ?? true)
+        // Coalesced settle-debounce: the screen list churns during reshuffles,
+        // and a lid flip fires this too (built-in going on/offline). Re-apply
+        // the desired state only once the topology has been quiet — the planner
+        // adds/drops only the virtual display as lid / real-external change.
+        scheduleScreenPolicyReapply()
+    }
+
+    /// Coalesced, settle-delayed `reapplyScreenPolicy()`. Each trigger (lid
+    /// flip, display-parameters change) cancels the pending one and
+    /// reschedules, so the stack moves once, SCREEN_SETTLE_SECS after the
+    /// last topology event — never concurrently with macOS's own clamshell
+    /// reconfiguration (that concurrency crashed the Dock, 2026-07-04). A
+    /// rapid open/close/open lid cycle coalesces into a single no-op apply.
+    /// The planner diffs against live state, so a fired apply is idempotent.
+    private func scheduleScreenPolicyReapply() {
+        screenPolicyReapply?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.screenPolicyReapply = nil
+            self.reapplyScreenPolicy()
         }
+        screenPolicyReapply = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.SCREEN_SETTLE_SECS, execute: work)
     }
 
     // MARK: - Power source
