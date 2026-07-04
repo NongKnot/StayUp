@@ -43,16 +43,21 @@ enum SleepPlanner {
     private static func layerState(_ layer: Layer, _ d: Desired) -> (on: Bool, preventDisplaySleep: Bool) {
         switch layer {
         case .caffeinate, .sleepPreventer:
+            // preventDisplaySleep stays tied to keepScreenOn even lid-closed:
+            // the virtual display idle-sleeps without it (~4 min), turning any
+            // remote GUI session black (CRD regression, bench 2026-07-04). The
+            // shut built-in panel is not at risk — firmware keeps it dark in
+            // clamshell regardless of this assertion.
             return (d.engaged, d.keepScreenOn)
         case .closedLid, .helper:
             return (d.engaged, false)
         case .virtualDisplay:
-            // The virtual display exists only to mimic an external screen while the
-            // screen is kept on: engaged AND keep-screen-on AND no real external
-            // AND the lid is shut (or the Mac has no lid). Lid-open needs no fake
-            // display — the built-in one is right there. Bench 2026-07-03: a
-            // CGVirtualDisplay survives lid-close and can be created lid-closed
-            // while the Helper holds sleep, so gating on the lid is safe.
+            // Mimics an external screen while keep-screen-on is wanted but no real
+            // screen is visible — lid shut and no external (desktops pass
+            // lidClosed=true, so the headless remote-GUI display still spawns).
+            // Bench 2026-07-03: a CGVirtualDisplay survives lid-close and can be
+            // created lid-closed while the Helper holds sleep, so gating on the
+            // lid is safe.
             return (d.engaged && d.keepScreenOn && !d.hasExternalDisplay && d.lidClosed, false)
         }
     }

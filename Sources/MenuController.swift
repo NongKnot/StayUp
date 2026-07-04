@@ -736,7 +736,8 @@ class MenuController: NSObject, NSMenuDelegate {
         cancelManualNap()
         active = false
         Settings.wasActive = false
-        stack.apply(engaged: false, keepScreenOn: false, hasExternalDisplay: false)
+        stack.apply(engaged: false, keepScreenOn: false, hasExternalDisplay: false,
+                    lidClosed: lidMonitor.isClosed ?? true)
         stopBatteryMonitor()
         // Powering off the accelerometer also fires onWalkStop if we were
         // mid-walk, which clears `isWalkingNow` and the icon animation.
