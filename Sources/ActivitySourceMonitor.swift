@@ -188,6 +188,93 @@ final class ActivitySourceMonitor {
         t.resume()
     }
 
+    // MARK: - Marker classification (single source of truth)
+
+    /// One marker file, read and parsed once per evaluation. Every policy
+    /// question — keep-awake, menu visibility, pruning — goes through
+    /// `classify(_:now:)` so the call sites can never drift apart.
+    private struct Marker {
+        let url: URL
+        let mtime: Date
+        let state: String?             // "active" | "waiting" | nil (invalid token)
+        let pid: Int32?
+        let toolCount: Int
+        let fields: [String: String]   // cwd/term/tx/signal/detail (untrusted)
+        var isExternal: Bool {
+            url.lastPathComponent.hasPrefix("ext-") || fields["signal"] != nil
+        }
+    }
+
+    private enum MarkerClass {
+        case working   // keeps the Mac awake
+        case idle      // visible in the menu, does not keep awake
+        case dead      // pruned
+    }
+
+    /// nil when the URL is not a regular file (directories, vanished entries).
+    /// Unreadable/empty content fails toward `active` (keep awake on a torn read).
+    private func readMarker(_ url: URL) -> Marker? {
+        let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+        guard vals?.isRegularFile == true, let mtime = vals?.contentModificationDate else { return nil }
+
+        var state: String? = "active"
+        var fields: [String: String] = [:]
+        if let data = try? Data(contentsOf: url), !data.isEmpty {
+            let lines = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline)
+            let first = (lines.first.map(String.init) ?? "")
+                .trimmingCharacters(in: .whitespaces).lowercased()
+            if first.isEmpty || first == "active" { state = "active" }
+            else if first == "waiting" { state = "waiting" }
+            else { state = nil }
+            for line in lines.dropFirst() {
+                let kv = line.split(separator: "=", maxSplits: 1).map(String.init)
+                if kv.count == 2 { fields[kv[0]] = kv[1] }
+            }
+        }
+        let pid = fields["pid"].flatMap { Int32($0.trimmingCharacters(in: .whitespaces)) }
+        return Marker(url: url, mtime: mtime, state: state, pid: pid,
+                      toolCount: toolCount(url), fields: fields)
+    }
+
+    /// The policy truth table (see the contract's reader-semantics section):
+    ///   • invalid state token → dead (junk in active/ is removed, not aged out)
+    ///   • waiting → idle while its owner is around, never working
+    ///   • external (observed) → working while fresh
+    ///   • tool in flight → working while the owning pid lives; NO time cap,
+    ///     so a real build runs as long as it takes
+    ///   • active, no tool (thinking gap) → working while fresh AND the owner
+    ///     lives; a dead owner is dead even when fresh
+    ///   • no verifiable pid anywhere → the 15-min staleness ceiling decides
+    private func classify(_ m: Marker, now: Date) -> MarkerClass {
+        let fresh = now.timeIntervalSince(m.mtime) < Self.STALE_CEILING
+        guard let state = m.state else { return .dead }
+        if state == "waiting" {
+            if let pid = m.pid, pid > 0 { return Self.pidAlive(pid) ? .idle : .dead }
+            return fresh ? .idle : .dead
+        }
+        if m.isExternal { return fresh ? .working : .dead }
+        if m.toolCount > 0 {
+            if let pid = m.pid, pid > 0 { return Self.pidAlive(pid) ? .working : .dead }
+            return fresh ? .working : .dead
+        }
+        if let pid = m.pid, pid > 0 {
+            return (Self.pidAlive(pid) && fresh) ? .working : .dead
+        }
+        return fresh ? .working : .dead
+    }
+
+    private func makeSession(_ m: Marker, working: Bool) -> ActivitySourceSession {
+        let state = m.state == "waiting" ? "waiting" : "active"
+        let visibleToolCount = working && state != "waiting" ? m.toolCount : 0
+        return ActivitySourceSession(
+            id: m.url.lastPathComponent, state: state,
+            cwd: m.fields["cwd"], terminal: m.fields["term"],
+            transcriptPath: m.fields["tx"],
+            signal: m.fields["signal"], detail: m.fields["detail"],
+            mtime: m.mtime, working: working,
+            toolsInFlight: visibleToolCount, isExternal: m.isExternal)
+    }
+
     // MARK: - Evaluation
 
     /// Recompute the aggregate state and fire `onChange` (on main) if it flipped.
@@ -204,7 +291,8 @@ final class ActivitySourceMonitor {
     private func computeAnyWorking() -> Bool {
         let now = Date()
         for url in markerURLs() {
-            guard sourceEnabled(url), isWorking(url, now: now) else { continue }
+            guard sourceEnabled(url), let m = readMarker(url),
+                  classify(m, now: now) == .working else { continue }
             return true
         }
         return false
@@ -301,20 +389,11 @@ final class ActivitySourceMonitor {
         (try? FileManager.default.contentsOfDirectory(atPath: url.path).isEmpty) ?? true
     }
 
+    /// Prune-worthy ⟺ the classifier says dead. Non-regular entries return
+    /// false here; the directory walk in `pruneStaleMarkers` handles them.
     private func shouldPruneMarker(_ url: URL, now: Date) -> Bool {
-        let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-        guard vals?.isRegularFile == true, let mtime = vals?.contentModificationDate else { return false }
-        let age = now.timeIntervalSince(mtime)
-
-        guard let state = workingState(url) else { return age > Self.STALE_CEILING }
-        if state == "waiting" {
-            if let pid = pidOf(url), pid > 0 { return !Self.pidAlive(pid) }
-            return age > Self.STALE_CEILING
-        }
-        if toolCount(url) > 0, let pid = pidOf(url), pid > 0 {
-            return !Self.pidAlive(pid)
-        }
-        return age > Self.STALE_CEILING
+        guard let m = readMarker(url) else { return false }
+        return classify(m, now: now) == .dead
     }
 
     /// Honour the per-source toggle from Settings. Prefer the source's own
@@ -339,85 +418,6 @@ final class ActivitySourceMonitor {
         return sourceDir.lastPathComponent
     }
 
-    private func isExternalMarker(_ url: URL) -> Bool {
-        url.lastPathComponent.hasPrefix("ext-") || markerValue("signal", in: url) != nil
-    }
-
-    /// A session marker qualifies as working while it is active and live:
-    /// tool-in-flight turns stay awake as long as the owning process lives,
-    /// and active model-thinking / between-tool gaps stay awake while fresh.
-    /// When the pid can't be verified, the staleness ceiling caps it so an
-    /// unreadable/leaked marker can't pin the Mac awake forever. Everything
-    /// else — waiting on you, stopped, idle — is *not working*; the post-idle
-    /// grace in MenuController decides how long to linger before the Mac may
-    /// sleep.
-    ///
-    /// Tool markers are not capped by mtime: a long build can run quietly for
-    /// longer than the staleness ceiling. Leaks are cleaned by `waiting`,
-    /// `stop`, `turn-start`, or by pruning the owning marker when its pid dies.
-    private func isWorking(_ url: URL, now: Date) -> Bool {
-        let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-        guard vals?.isRegularFile == true, let mtime = vals?.contentModificationDate else { return false }
-        guard let state = workingState(url) else { return false }   // "active" | "waiting"
-        let age = now.timeIntervalSince(mtime)
-
-        // Waiting on the human → not working; the grace decides the linger.
-        // Applies to exact and synthetic markers alike, so test/custom writers
-        // can model an idle-but-visible source.
-        if state == "waiting" { return false }
-
-        // Observed source: fresh active presence = busy.
-        if isExternalMarker(url) { return age < Self.STALE_CEILING }
-
-        // An ACTIVE turn keeps the Mac awake — whether a tool is running OR the
-        // model is just thinking (the long "spinner"). That's the whole point:
-        // the source is working, so don't nap mid-turn.
-        //   • tool in flight → held while the owning process lives (a long build's
-        //     marker goes stale, but the live pid keeps it up; no time cap).
-        //   • no tool (thinking) → held while the process is alive AND the marker
-        //     is fresh; a stale active marker (an Esc'd turn that fired no Stop)
-        //     ages out on the staleness ceiling so it can't pin the Mac forever.
-        if toolCount(url) > 0 {
-            if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) }
-            return age < Self.STALE_CEILING
-        }
-        if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) && age < Self.STALE_CEILING }
-        return age < Self.STALE_CEILING
-    }
-
-    /// The `pid=` line from a marker (the source process that owns the session).
-    private func pidOf(_ url: URL) -> Int32? {
-        guard let raw = markerValue("pid", in: url) else { return nil }
-        return Int32(raw.trimmingCharacters(in: .whitespaces))
-    }
-
-    private func markerValue(_ key: String, in url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        let prefix = key + "="
-        for line in String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline)
-        where line.hasPrefix(prefix) {
-            return String(line.dropFirst(prefix.count))
-        }
-        return nil
-    }
-
-    /// Is the process still alive? `kill(pid, 0)` succeeds for a live process we
-    /// own; `EPERM` means it's alive but not ours (still counts as alive).
-    private static func pidAlive(_ pid: Int32) -> Bool {
-        kill(pid, 0) == 0 || errno == EPERM
-    }
-
-    /// First line of the marker: `active`/`waiting` → that state. Empty/torn →
-    /// `active` (fail toward keeping awake on a transient read). Other → nil.
-    private func workingState(_ url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return "active" }
-        let first = (String(decoding: data, as: UTF8.self)
-            .split(whereSeparator: \.isNewline).first ?? "")
-            .trimmingCharacters(in: .whitespaces).lowercased()
-        if first.isEmpty || first == "active" { return "active" }
-        return first == "waiting" ? "waiting" : nil
-    }
-
     /// Number of tools currently in flight for a session — files in the sibling
     /// `<marker>.tools/` directory (PreToolUse adds, PostToolUse removes).
     private func toolCount(_ markerURL: URL) -> Int {
@@ -434,6 +434,12 @@ final class ActivitySourceMonitor {
         }.count
     }
 
+    /// Is the process still alive? `kill(pid, 0)` succeeds for a live process we
+    /// own; `EPERM` means it's alive but not ours (still counts as alive).
+    private static func pidAlive(_ pid: Int32) -> Bool {
+        kill(pid, 0) == 0 || errno == EPERM
+    }
+
     // MARK: - Rich snapshot (for the menu)
 
     /// Synchronous snapshot of *live* sessions for the menu — which terminal,
@@ -444,63 +450,13 @@ final class ActivitySourceMonitor {
     func snapshotSessions() -> [ActivitySourceSession] {
         let now = Date()
         return markerURLs()
-            .filter { sourceEnabled($0) && isLive($0, now: now) }
-            .map { parseSession($0, working: isWorking($0, now: now), now: now) }
+            .compactMap { url -> ActivitySourceSession? in
+                guard sourceEnabled(url), let m = readMarker(url) else { return nil }
+                let cls = classify(m, now: now)
+                guard cls != .dead else { return nil }
+                return makeSession(m, working: cls == .working)
+            }
             .sorted { a, b in a.working != b.working ? a.working : a.mtime > b.mtime }  // running first
-    }
-
-    /// A marker worth *showing* in the menu — looser than `isWorking`: any valid
-    /// active/waiting marker whose owner is still around (pid alive if known,
-    /// else fresh within the staleness ceiling for pid-less external markers).
-    /// A crashed session (dead pid) drops out; a long-waiting session stays.
-    private func isLive(_ url: URL, now: Date) -> Bool {
-        let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-        guard vals?.isRegularFile == true, let mtime = vals?.contentModificationDate else { return false }
-        guard let state = workingState(url) else { return false }
-        let age = now.timeIntervalSince(mtime)
-        if state == "waiting" {
-            if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) }
-            return age < Self.STALE_CEILING
-        }
-        if isExternalMarker(url) { return age < Self.STALE_CEILING }
-        if toolCount(url) > 0 {
-            if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) }
-            return age < Self.STALE_CEILING
-        }
-        if let pid = pidOf(url), pid > 0 { return Self.pidAlive(pid) && age < Self.STALE_CEILING }
-        return age < Self.STALE_CEILING
-    }
-
-    private func parseSession(_ url: URL, working: Bool, now: Date) -> ActivitySourceSession {
-        let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-            .contentModificationDate ?? Date()
-        var state = "active"
-        var cwd: String?, term: String?, tx: String?, signal: String?, detail: String?
-        if let data = try? Data(contentsOf: url) {
-            let lines = String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline)
-            if let first = lines.first,
-               first.trimmingCharacters(in: .whitespaces).lowercased() == "waiting" {
-                state = "waiting"
-            }
-            for line in lines.dropFirst() {
-                let kv = line.split(separator: "=", maxSplits: 1).map(String.init)
-                guard kv.count == 2 else { continue }
-                switch kv[0] {
-                case "cwd":    cwd    = kv[1]
-                case "term":   term   = kv[1]
-                case "tx":     tx     = kv[1]
-                case "signal": signal = kv[1]
-                case "detail": detail = kv[1]
-                default:       break
-                }
-            }
-        }
-        let visibleToolCount = working && state != "waiting" ? toolCount(url) : 0
-        return ActivitySourceSession(id: url.lastPathComponent, state: state,
-                            cwd: cwd, terminal: term, transcriptPath: tx,
-                            signal: signal, detail: detail, mtime: mtime,
-                            working: working, toolsInFlight: visibleToolCount,
-                            isExternal: isExternalMarker(url))
     }
 
     /// Total tokens **used** in a session, summed from its transcript JSONL
