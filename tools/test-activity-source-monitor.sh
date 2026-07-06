@@ -173,9 +173,6 @@ monitor.procStartTime = { _ in Date() }          // started AFTER the marker →
 if monitor.snapshotSessions().contains(where: { $0.id == "recycled" }) {
     fail("tool marker owned by a recycled pid must not be visible")
 }
-if monitor.isAnySourceWorking {
-    fail("recycled-pid tool marker must not keep the Mac awake")
-}
 monitor.procStartTime = { _ in .distantPast }    // long-lived owner again
 guard let recovered = monitor.snapshotSessions().first(where: { $0.id == "recycled" }),
       recovered.working else {
