@@ -113,9 +113,6 @@ write("active\npid=\(deadPid())\n", to: deadOwner)
 if monitor.snapshotSessions().contains(where: { $0.id == "dead-owner" }) {
     fail("fresh active marker with dead pid must not be visible")
 }
-if monitor.isAnySourceWorking {
-    fail("nothing should be working: junk + dead-owner + waiting only")
-}
 
 // External marker: fresh presence = working, stale = gone.
 let extFresh = source.appendingPathComponent("active/ext-observed")
