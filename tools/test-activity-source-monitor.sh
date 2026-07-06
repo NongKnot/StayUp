@@ -49,6 +49,18 @@ write("""
 let monitor = ActivitySourceMonitor(directory: root)
 let pid = getpid()
 
+// Legacy cases model a long-lived owner: markers are backdated but pid=self
+// is seconds old. Pin the start-time lookup to the distant past so they keep
+// exercising the no-time-cap policy; the recycle cases below override it.
+// For dead pids, return nil so pidOwnsMarker falls back to pidAlive check.
+monitor.procStartTime = { testPid in
+    let realResult = ActivitySourceMonitor.processStartTime(testPid)
+    if realResult != nil {
+        return .distantPast  // live pid gets ancient start time
+    }
+    return nil  // dead pid falls through to pidAlive fallback
+}
+
 let longTool = source.appendingPathComponent("active/long-tool")
 write("active\npid=\(pid)\n", to: longTool)
 let toolsDir = URL(fileURLWithPath: longTool.path + ".tools", isDirectory: true)
@@ -134,6 +146,51 @@ guard let tornSession = snap.first(where: { $0.id == "torn-read" }), tornSession
     fail("empty (torn) marker must fail safe toward working while fresh")
 }
 try! FileManager.default.removeItem(at: torn)
+
+// --- pid-recycle guard -------------------------------------------------------
+
+// Real sysctl: our own start time is sane; a reaped pid has none.
+guard let selfStart = ActivitySourceMonitor.processStartTime(getpid()) else {
+    fail("processStartTime(self) should resolve")
+}
+let sinceStart = Date().timeIntervalSince(selfStart)
+if sinceStart < 0 || sinceStart > 3600 {
+    fail("processStartTime(self) implausible: \(sinceStart)s ago")
+}
+if ActivitySourceMonitor.processStartTime(deadPid()) != nil {
+    fail("processStartTime(dead pid) should be nil")
+}
+
+// Recycled pid: marker written long ago, "owner" process started after it.
+// Seam: pretend every pid lookup returns a just-started process.
+let recycled = source.appendingPathComponent("active/recycled")
+write("active\npid=\(pid)\n", to: recycled)
+let recycledTools = URL(fileURLWithPath: recycled.path + ".tools", isDirectory: true)
+try! FileManager.default.createDirectory(at: recycledTools, withIntermediateDirectories: true)
+write("", to: recycledTools.appendingPathComponent("build"))
+touchOld(recycled)
+monitor.procStartTime = { _ in Date() }          // started AFTER the marker → recycled
+if monitor.snapshotSessions().contains(where: { $0.id == "recycled" }) {
+    fail("tool marker owned by a recycled pid must not be visible")
+}
+if monitor.isAnySourceWorking {
+    fail("recycled-pid tool marker must not keep the Mac awake")
+}
+monitor.procStartTime = { _ in .distantPast }    // long-lived owner again
+guard let recovered = monitor.snapshotSessions().first(where: { $0.id == "recycled" }),
+      recovered.working else {
+    fail("same marker with a pre-existing owner must be working (no time cap)")
+}
+// Reset to smart seam for pruning phase: distinguish live pids (distant past) from dead pids (nil fallback)
+monitor.procStartTime = { testPid in
+    let realResult = ActivitySourceMonitor.processStartTime(testPid)
+    if realResult != nil {
+        return .distantPast
+    }
+    return nil
+}
+try! FileManager.default.removeItem(at: recycled)
+try! FileManager.default.removeItem(at: recycledTools)
 
 // Pruning: start the poll loop and verify dead markers leave the disk.
 // junk-token and dead-owner are fresh — old code kept both up to 15 min.

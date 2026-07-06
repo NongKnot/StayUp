@@ -249,16 +249,16 @@ final class ActivitySourceMonitor {
         let fresh = now.timeIntervalSince(m.mtime) < Self.STALE_CEILING
         guard let state = m.state else { return .dead }
         if state == "waiting" {
-            if let pid = m.pid, pid > 0 { return Self.pidAlive(pid) ? .idle : .dead }
+            if let pid = m.pid, pid > 0 { return pidOwnsMarker(pid, mtime: m.mtime) ? .idle : .dead }
             return fresh ? .idle : .dead
         }
         if m.isExternal { return fresh ? .working : .dead }
         if m.toolCount > 0 {
-            if let pid = m.pid, pid > 0 { return Self.pidAlive(pid) ? .working : .dead }
+            if let pid = m.pid, pid > 0 { return pidOwnsMarker(pid, mtime: m.mtime) ? .working : .dead }
             return fresh ? .working : .dead
         }
         if let pid = m.pid, pid > 0 {
-            return (Self.pidAlive(pid) && fresh) ? .working : .dead
+            return (pidOwnsMarker(pid, mtime: m.mtime) && fresh) ? .working : .dead
         }
         return fresh ? .working : .dead
     }
@@ -432,6 +432,38 @@ final class ActivitySourceMonitor {
             guard let vals = try? url.resourceValues(forKeys: [.isRegularFileKey]) else { return false }
             return vals.isRegularFile == true
         }.count
+    }
+
+    /// Slack for filesystem-vs-process-clock granularity when comparing a
+    /// process start time against a marker mtime.
+    private static let PID_START_SLACK: TimeInterval = 2
+
+    /// Test seam: process start-time lookup. Production always uses the
+    /// sysctl-backed default; tests substitute fixed clocks.
+    var procStartTime: (Int32) -> Date? = ActivitySourceMonitor.processStartTime
+
+    /// When the process behind `pid` started, via sysctl KERN_PROC. nil when
+    /// the pid doesn't resolve (dead) or the lookup fails.
+    static func processStartTime(_ pid: Int32) -> Date? {
+        guard pid > 0 else { return nil }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0,
+              size > 0, info.kp_proc.p_pid == pid else { return nil }
+        let tv = info.kp_proc.p_starttime
+        return Date(timeIntervalSince1970: TimeInterval(tv.tv_sec)
+                    + TimeInterval(tv.tv_usec) / 1_000_000)
+    }
+
+    /// A pid owns a marker only if its process existed before the marker's
+    /// last write — the owning process always predates its own writes, so a
+    /// process that started *after* the marker is a recycled pid and must not
+    /// hold the Mac awake. Falls back to plain liveness (kill(pid,0), EPERM
+    /// counts as alive) when the start time can't be read.
+    private func pidOwnsMarker(_ pid: Int32, mtime: Date) -> Bool {
+        guard let start = procStartTime(pid) else { return Self.pidAlive(pid) }
+        return start.timeIntervalSince(mtime) <= Self.PID_START_SLACK
     }
 
     /// Is the process still alive? `kill(pid, 0)` succeeds for a live process we
