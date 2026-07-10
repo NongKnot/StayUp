@@ -328,6 +328,55 @@ enum ActivitySourceHookInstaller {
         }
     }
 
+    // MARK: - Legacy v0 purge
+
+    /// Marker for pre-contract v0 hook entries (`stayup-agent-hook.sh`, wrote
+    /// markers to ~/.stayup/active/ that nothing reads since the v1 Activity
+    /// Source contract). Distinct from `marker` — v1 entries must survive.
+    static let legacyAgentMarker = "stayup-agent-hook.sh"
+
+    /// Remove StayUp-owned v0 entries from a Claude-style grouped hooks file.
+    /// Returns true when the file was modified. Foreign entries and v1
+    /// (`stayup-source-hook`) entries are untouched. No-op (and no rewrite,
+    /// no .bak churn) when nothing matches.
+    @discardableResult
+    static func purgeLegacyAgentHooks(settings: URL) throws -> Bool {
+        var root = try readSettings(at: settings)
+        guard var hooks = root["hooks"] as? [String: Any] else { return false }
+        var changed = false
+        for (event, value) in hooks {
+            guard let groups = value as? [[String: Any]] else { continue }
+            let kept = groups.compactMap { group -> [String: Any]? in
+                guard let hookItems = group["hooks"] as? [[String: Any]] else { return group }
+                let keptItems = hookItems.filter {
+                    guard let command = $0["command"] as? String else { return true }
+                    return !command.contains(legacyAgentMarker)
+                }
+                if keptItems.count != hookItems.count { changed = true }
+                if keptItems.isEmpty { return nil }
+                var keptGroup = group
+                keptGroup["hooks"] = keptItems
+                return keptGroup
+            }
+            if kept.isEmpty { hooks.removeValue(forKey: event) } else { hooks[event] = kept }
+        }
+        guard changed else { return false }
+        if hooks.isEmpty { root.removeValue(forKey: "hooks") } else { root["hooks"] = hooks }
+        try writeSettings(root, to: settings)
+        return true
+    }
+
+    /// One-time launch migration: clear every v0 artifact — the hook entries in
+    /// Claude's settings plus the dead script, marker dir, and watch-list under
+    /// ~/.stayup/. Idempotent; each piece is independent and best-effort.
+    static func purgeLegacyAgentArtifactsIfNeeded() {
+        try? purgeLegacyAgentHooks(settings: home.appendingPathComponent(".claude/settings.json"))
+        let fm = FileManager.default
+        for path in [".stayup/bin/stayup-agent-hook.sh", ".stayup/active", ".stayup/watch.json"] {
+            try? fm.removeItem(at: home.appendingPathComponent(path))
+        }
+    }
+
     static func isSourceInstalled(_ s: BundledSource, scriptDest: URL, configFile: URL) -> Bool {
         guard let adapter = s.adapter else { return false }
         switch adapter {

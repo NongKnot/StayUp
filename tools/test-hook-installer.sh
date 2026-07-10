@@ -533,6 +533,53 @@ if ActivitySourceHookInstaller.isSourceHealthy(
     claudeSource, scriptDest: healthDest, configFile: healthSettings) {
     fail("missing config entries must report unhealthy")
 }
+
+// --- Legacy v0 purge: remove stayup-agent-hook entries, keep everything else ---
+let legacySettings = scriptURL.deletingLastPathComponent()
+    .appendingPathComponent("legacy-claude-settings.json")
+let legacyJSON = """
+{
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "", "hooks": [
+        { "type": "command", "command": "echo user-hook" },
+        { "type": "command", "command": "\\"/Users/example/.stayup/bin/stayup-agent-hook.sh\\" tool-begin" }
+      ]}
+    ],
+    "Stop": [
+      { "matcher": "", "hooks": [
+        { "type": "command", "command": "\\"/Users/example/.stayup/bin/stayup-agent-hook.sh\\" waiting" }
+      ]}
+    ],
+    "SessionStart": [
+      { "matcher": "", "hooks": [
+        { "type": "command", "command": "'/Users/example/.stayup/bin/stayup-source-hook-claude-code-cli.sh' waiting" }
+      ]}
+    ]
+  }
+}
+"""
+try Data(legacyJSON.utf8).write(to: legacySettings, options: .atomic)
+if try !ActivitySourceHookInstaller.purgeLegacyAgentHooks(settings: legacySettings) {
+    fail("purge should report a change when v0 entries are present")
+}
+var legacyRoot = try jsonRoot(legacySettings)
+assertNotContains(commands(for: "PreToolUse", in: legacyRoot), "stayup-agent-hook")
+assertContains(commands(for: "PreToolUse", in: legacyRoot), "echo user-hook")
+assertContains(commands(for: "SessionStart", in: legacyRoot), "stayup-source-hook-claude-code-cli")
+if (legacyRoot["model"] as? String) != "opus" { fail("purge must not touch non-hook settings") }
+if (legacyRoot["hooks"] as? [String: Any])?["Stop"] != nil {
+    fail("event left with only v0 entries should be removed entirely")
+}
+// Idempotent: second run reports no change and leaves the file byte-identical.
+let beforeSecond = try Data(contentsOf: legacySettings)
+if try ActivitySourceHookInstaller.purgeLegacyAgentHooks(settings: legacySettings) {
+    fail("second purge run should be a no-op")
+}
+if try Data(contentsOf: legacySettings) != beforeSecond {
+    fail("no-op purge must not rewrite the file")
+}
 SWIFT
 
 swiftc "$ROOT/Sources/BundledSources.swift" "$ROOT/Sources/ActivitySourceHookInstaller.swift" "$TEST_MAIN" -o "$BIN"
