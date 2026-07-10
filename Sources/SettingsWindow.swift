@@ -547,16 +547,21 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
                ActivitySourceHookInstaller.canManageHooks(for: source.key) {
                 let dot = NSTextField(labelWithString: "●")
                 dot.font = NSFont.systemFont(ofSize: 9)
-                switch ActivitySourceHookInstaller.hookHealth(for: source.key) {
-                case .connected:
-                    dot.textColor = .systemGreen
-                    dot.toolTip = "Hooks connected"
-                case .needsRepair:
-                    dot.textColor = .systemOrange
-                    dot.toolTip = "Hooks need repair — use Connect"
-                case .off:
+                if !enabled {
                     dot.textColor = .tertiaryLabelColor
-                    dot.toolTip = "Disconnected while Auto is off"
+                    dot.toolTip = "Source not selected for Auto"
+                } else {
+                    switch ActivitySourceHookInstaller.hookHealth(for: source.key) {
+                    case .connected:
+                        dot.textColor = .systemGreen
+                        dot.toolTip = "Hooks connected"
+                    case .needsRepair:
+                        dot.textColor = .systemOrange
+                        dot.toolTip = "Hooks need repair — use Connect"
+                    case .off:
+                        dot.textColor = .tertiaryLabelColor
+                        dot.toolTip = "Disconnected while Auto is off"
+                    }
                 }
                 dot.setContentHuggingPriority(.required, for: .horizontal)
                 badge = dot
