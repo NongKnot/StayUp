@@ -540,6 +540,28 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             cb.toolTip = source.key == source.displayName ? nil : "Source key: \(source.key)"
             cb.setContentHuggingPriority(.required, for: .horizontal)
 
+            // Hook-health badge — managed reported sources only (observed
+            // sources have no hooks to break).
+            var badge: NSTextField?
+            if (source.method == "reported" || source.type == "reported"),
+               ActivitySourceHookInstaller.canManageHooks(for: source.key) {
+                let dot = NSTextField(labelWithString: "●")
+                dot.font = NSFont.systemFont(ofSize: 9)
+                switch ActivitySourceHookInstaller.hookHealth(for: source.key) {
+                case .connected:
+                    dot.textColor = .systemGreen
+                    dot.toolTip = "Hooks connected"
+                case .needsRepair:
+                    dot.textColor = .systemOrange
+                    dot.toolTip = "Hooks need repair — use Connect"
+                case .off:
+                    dot.textColor = .tertiaryLabelColor
+                    dot.toolTip = "Disconnected while Auto is off"
+                }
+                dot.setContentHuggingPriority(.required, for: .horizontal)
+                badge = dot
+            }
+
             let name = NSTextField(labelWithString: source.displayName)
             name.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
             name.maximumNumberOfLines = 1
@@ -589,7 +611,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             delete.widthAnchor.constraint(equalToConstant: 72).isActive = true
             actions.append(delete)
 
-            let row = NSStackView(views: [cb, text, spacer] + actions)
+            let row = NSStackView(views: [cb] + (badge.map { [$0] } ?? []) + [text, spacer] + actions)
             row.orientation = .horizontal
             row.alignment = .centerY
             row.spacing = 8
@@ -617,7 +639,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     private static func sourceNeedsManagedConnection(_ source: ExternalSourceWatcher.ConfiguredSourceInfo) -> Bool {
         (source.method == "reported" || source.type == "reported") &&
             ActivitySourceHookInstaller.canManageHooks(for: source.key) &&
-            !ActivitySourceHookInstaller.isHookInstalled(for: source.key)
+            !ActivitySourceHookInstaller.isHookHealthy(for: source.key)
     }
 
     private func updateSourceSummary(sources: [ExternalSourceWatcher.ConfiguredSourceInfo]? = nil) {
@@ -625,7 +647,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         let visibleSources = sources ?? ExternalSourceWatcher.configuredSourceInfo()
         let total = visibleSources.count
         let enabled = visibleSources.filter { Settings.isSourceEnabled($0.key) }.count
-        let mode = Settings.autoSourceEnabled ? "Auto on" : "Auto off"
+        let mode = Settings.autoSourceEnabled
+            ? "Auto on"
+            : "Auto off — sources reconnect when Auto turns on"
         let trusted = enabled == 1 ? "1 trusted" : "\(enabled) trusted"
         let found = total == 1 ? "1 found" : "\(total) found"
         sourceSummary.stringValue = "\(mode) · \(trusted) · \(found)"
