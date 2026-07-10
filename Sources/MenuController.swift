@@ -367,6 +367,7 @@ class MenuController: NSObject, NSMenuDelegate {
         // config dropped our activity hook and we re-added it. Passive backstop
         // (paired with a one-shot notification) so the user still sees it later.
         reconnectMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        reconnectMenuItem.target    = self
         reconnectMenuItem.isEnabled = false
         reconnectMenuItem.isHidden  = true
         menu.addItem(reconnectMenuItem)
@@ -578,6 +579,17 @@ class MenuController: NSObject, NSMenuDelegate {
             : "Reconnected \(joined) — configs had changed"
         updateUI()
         notifyHookReconnect(names)
+    }
+
+    /// Menu-warning action: force a reconnect of every enabled reported source.
+    @objc private func reconnectSourcesNow() {
+        do {
+            try ActivitySourceHookInstaller.install(onlyEnabled: true)
+            reconnectNotice = "Reconnected — sources are hooked up again"
+        } catch {
+            presentHookWarning(error)
+        }
+        updateUI()
     }
 
     private func notifyHookReconnect(_ names: [String]) {
@@ -1554,8 +1566,21 @@ class MenuController: NSObject, NSMenuDelegate {
     }
 
     private func updateReconnectItem() {
-        if let notice = reconnectNotice {
+        // Active failure beats passive notice: Auto is on but a source is
+        // still unhealthy after self-heal ran — repair is failing (unwritable
+        // config, deploy error), so give the user a handle instead of a log.
+        let broken = Settings.autoSourceEnabled
+            ? ActivitySourceHookInstaller.unhealthyDisplayNames(onlyEnabled: true) : []
+        if !broken.isEmpty {
+            reconnectMenuItem.title    = "⚠︎  Auto can't see \(broken.joined(separator: ", ")) — click to reconnect"
+            reconnectMenuItem.action   = #selector(reconnectSourcesNow)
+            reconnectMenuItem.isEnabled = true
+            reconnectMenuItem.isHidden = false
+            reconnectSeparator.isHidden = false
+        } else if let notice = reconnectNotice {
             reconnectMenuItem.title    = "⚠︎  \(notice)"
+            reconnectMenuItem.action   = nil
+            reconnectMenuItem.isEnabled = false
             reconnectMenuItem.isHidden = false
             reconnectSeparator.isHidden = false
         } else {
