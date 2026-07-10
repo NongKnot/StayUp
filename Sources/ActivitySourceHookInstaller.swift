@@ -370,7 +370,7 @@ enum ActivitySourceHookInstaller {
     /// Claude's settings plus the dead script, marker dir, and watch-list under
     /// ~/.stayup/. Idempotent; each piece is independent and best-effort.
     static func purgeLegacyAgentArtifactsIfNeeded() {
-        try? purgeLegacyAgentHooks(settings: home.appendingPathComponent(".claude/settings.json"))
+        _ = try? purgeLegacyAgentHooks(settings: home.appendingPathComponent(".claude/settings.json"))
         let fm = FileManager.default
         for path in [".stayup/bin/stayup-agent-hook.sh", ".stayup/active", ".stayup/watch.json"] {
             try? fm.removeItem(at: home.appendingPathComponent(path))

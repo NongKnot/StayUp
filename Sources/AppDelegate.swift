@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // the developer-name from the code-signing cert. Idempotent on clean
         // systems.
         mc.migrateLegacyLaunchAgentIfNeeded()
+        ActivitySourceHookInstaller.purgeLegacyAgentArtifactsIfNeeded()
         // First-launch onboarding. Sets Settings.didOnboard=true on close
         // so the welcome never re-appears for the same install. Delayed
         // by one runloop tick so the menu-bar icon paints first — the
