@@ -499,6 +499,40 @@ if FileManager.default.fileExists(atPath: pluginFile.path) {
     fail("OpenCode plugin not deleted on uninstall")
 }
 print("opencode ownPlugin adapter: ok")
+
+// --- Hook health: content-aware wrapper check (stub-zombie regression) ---
+let healthDest = scriptURL.deletingLastPathComponent()
+    .appendingPathComponent("health-bin/stayup-source-hook.sh")
+let healthSettings = scriptURL.deletingLastPathComponent()
+    .appendingPathComponent("health-claude-settings.json")
+try ActivitySourceHookInstaller.install(
+    scriptSource: scriptURL, scriptDest: healthDest, settings: healthSettings)
+let claudeSource = BundledSources.source(forKey: "Claude")!
+if !ActivitySourceHookInstaller.isSourceHealthy(
+    claudeSource, scriptDest: healthDest, configFile: healthSettings) {
+    fail("freshly installed Claude source should be healthy")
+}
+// Stub the wrapper the way safe-disable does — config entries stay intact.
+let healthWrapper = healthDest.deletingLastPathComponent()
+    .appendingPathComponent("stayup-source-hook-claude-code-cli.sh")
+try Data("#!/bin/sh\nexit 0\n".utf8).write(to: healthWrapper, options: .atomic)
+if ActivitySourceHookInstaller.isSourceHealthy(
+    claudeSource, scriptDest: healthDest, configFile: healthSettings) {
+    fail("stubbed wrapper must report unhealthy even with intact config (stub zombie)")
+}
+// Reinstall heals: wrapper content restored, healthy again.
+try ActivitySourceHookInstaller.install(
+    scriptSource: scriptURL, scriptDest: healthDest, settings: healthSettings)
+if !ActivitySourceHookInstaller.isSourceHealthy(
+    claudeSource, scriptDest: healthDest, configFile: healthSettings) {
+    fail("reinstall should restore health after a stubbed wrapper")
+}
+// Config-side damage also reports unhealthy.
+try ActivitySourceHookInstaller.uninstall(settings: healthSettings)
+if ActivitySourceHookInstaller.isSourceHealthy(
+    claudeSource, scriptDest: healthDest, configFile: healthSettings) {
+    fail("missing config entries must report unhealthy")
+}
 SWIFT
 
 swiftc "$ROOT/Sources/BundledSources.swift" "$ROOT/Sources/ActivitySourceHookInstaller.swift" "$TEST_MAIN" -o "$BIN"

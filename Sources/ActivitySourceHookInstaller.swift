@@ -91,6 +91,44 @@ enum ActivitySourceHookInstaller {
         return isSourceInstalled(s, scriptDest: scriptDestURL, configFile: configURL(for: s))
     }
 
+    /// Per-source hook health for UI. `off` = Auto is off (disconnected is the
+    /// normal state, not a failure); `needsRepair` = wrapper stubbed/drifted/
+    /// missing or config entries gone while Auto is on.
+    enum HookHealth { case connected, needsRepair, off }
+
+    static func hookHealth(for sourceKey: String) -> HookHealth {
+        guard Settings.autoSourceEnabled else { return .off }
+        guard let s = reportedSource(named: sourceKey) else { return .off }
+        return isSourceHealthy(s, scriptDest: scriptDestURL, configFile: configURL(for: s))
+            ? .connected : .needsRepair
+    }
+
+    static func isHookHealthy(for sourceKey: String) -> Bool {
+        guard let s = reportedSource(named: sourceKey) else { return false }
+        return isSourceHealthy(s, scriptDest: scriptDestURL, configFile: configURL(for: s))
+    }
+
+    /// Installed AND the deployed wrapper's bytes match what we'd generate.
+    /// The content check is what catches a safe-disable stub (`exit 0`) left
+    /// behind by delete/re-add — it exists on disk, so a bare existence check
+    /// calls it fine while every hook silently no-ops.
+    static func isSourceHealthy(_ s: BundledSource, scriptDest: URL, configFile: URL) -> Bool {
+        isSourceInstalled(s, scriptDest: scriptDest, configFile: configFile)
+            && wrapperHealthy(for: s, scriptDest: scriptDest)
+    }
+
+    static func unhealthyDisplayNames(onlyEnabled: Bool) -> [String] {
+        BundledSources.reported
+            .filter { wants($0, onlyEnabled: onlyEnabled) }
+            .filter { !isSourceHealthy($0, scriptDest: scriptDestURL, configFile: configURL(for: $0)) }
+            .map(\.displayName)
+    }
+
+    private static func wrapperHealthy(for s: BundledSource, scriptDest: URL) -> Bool {
+        fileMatches(wrapperURL(for: s, scriptDest: scriptDest),
+                    expected: "#!/bin/sh\n" + wrapperContents(for: s, scriptDest: scriptDest))
+    }
+
     static func canManageHooks(for sourceKey: String) -> Bool {
         reportedSource(named: sourceKey) != nil
     }
