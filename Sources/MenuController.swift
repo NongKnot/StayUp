@@ -40,6 +40,9 @@ class MenuController: NSObject, NSMenuDelegate {
     /// re-added our entries. Drives the passive menu-bar reminder. Session-scoped
     /// — clears on the next launch where nothing drifted.
     private var reconnectNotice: String?
+    /// Cached result of `ActivitySourceHookInstaller.unhealthyDisplayNames`,
+    /// refreshed only by `refreshHookHealthCache()` — see that method for why.
+    private var unhealthySourceNames: [String] = []
     private var settings:          SettingsWindow?
     private var appearanceObserver: NSKeyValueObservation?
     private var welcome:           WelcomeWindow?
@@ -441,6 +444,7 @@ class MenuController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        refreshHookHealthCache()
         updateUI()
         startMenuRefreshTimer()
     }
@@ -493,6 +497,7 @@ class MenuController: NSObject, NSMenuDelegate {
             try? ActivitySourceHookInstaller.uninstall()
         }
         reconcileAutoMode()
+        refreshHookHealthCache()
         updateUI()
         publishStatus()
     }
@@ -589,6 +594,7 @@ class MenuController: NSObject, NSMenuDelegate {
         } catch {
             presentHookWarning(error)
         }
+        refreshHookHealthCache()
         updateUI()
     }
 
@@ -1565,12 +1571,20 @@ class MenuController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// Recompute hook health (file I/O — a read per source config + wrapper).
+    /// Called only from menu-open and the reconnect action, never from the
+    /// updateUI() hot path: animation timers tick updateUI() at up to 4 Hz,
+    /// and health polling there would burn disk + battery for nothing.
+    private func refreshHookHealthCache() {
+        unhealthySourceNames = Settings.autoSourceEnabled
+            ? ActivitySourceHookInstaller.unhealthyDisplayNames(onlyEnabled: true) : []
+    }
+
     private func updateReconnectItem() {
         // Active failure beats passive notice: Auto is on but a source is
         // still unhealthy after self-heal ran — repair is failing (unwritable
         // config, deploy error), so give the user a handle instead of a log.
-        let broken = Settings.autoSourceEnabled
-            ? ActivitySourceHookInstaller.unhealthyDisplayNames(onlyEnabled: true) : []
+        let broken = unhealthySourceNames
         if !broken.isEmpty {
             reconnectMenuItem.title    = "⚠︎  Auto can't see \(broken.joined(separator: ", ")) — click to reconnect"
             reconnectMenuItem.action   = #selector(reconnectSourcesNow)
