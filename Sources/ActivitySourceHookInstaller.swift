@@ -207,13 +207,14 @@ enum ActivitySourceHookInstaller {
         // without the second check a deleted script never self-heals until the
         // next launch (every hook meanwhile runs a missing script).
         let scriptMissing = !FileManager.default.fileExists(atPath: scriptDestURL.path)
-        let wrapperMissing = wanted.contains {
-            !FileManager.default.fileExists(atPath: wrapperURL(for: $0, scriptDest: scriptDestURL).path)
-        }
+        // Content mismatch, not just existence: a safe-disable stub or a
+        // drifted wrapper exists on disk but no-ops every hook. Missing is a
+        // special case of mismatched, so one check covers both.
+        let wrapperUnhealthy = wanted.contains { !wrapperHealthy(for: $0, scriptDest: scriptDestURL) }
         // Drift = our hook entries gone from the agent's own config (vs. our
         // script/wrapper on disk). Capture before reinstalling so we can report it.
         let drifted = missingHookDisplayNames(onlyEnabled: true)
-        guard !isInstalled(onlyEnabled: true) || scriptMissing || wrapperMissing else { return [] }
+        guard !isInstalled(onlyEnabled: true) || scriptMissing || wrapperUnhealthy else { return [] }
         try? install(onlyEnabled: true)
         return drifted
     }
