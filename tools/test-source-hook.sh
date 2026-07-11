@@ -131,7 +131,13 @@ call_generic_hook working
 [ "$(first_line)" = "active" ] || fail "working alias should write active marker"
 
 expected_pid="$$"
-STAYUP_SOURCE_PID="$expected_pid" call_generic_hook working
+# Subshell keeps the export scoped: a prefix-assignment on a *function* call
+# persists after the call in POSIX-mode shells (sh = bash --posix on macOS),
+# and a leaked STAYUP_SOURCE_PID would shadow the JSON pid cases below.
+(
+    export STAYUP_SOURCE_PID="$expected_pid"
+    call_generic_hook working
+)
 [ "$(marker_value pid)" = "$expected_pid" ] || fail "STAYUP_SOURCE_PID should be preferred as the source pid"
 
 MULTILINE_JSON='{
