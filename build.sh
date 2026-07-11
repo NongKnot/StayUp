@@ -43,6 +43,7 @@ swiftc -target "$TARGET" \
     Sources/StayUpHelper.swift \
     Sources/SleepStackPlanner.swift \
     Sources/SleepStack.swift \
+    Sources/AutoEngagePolicy.swift \
     Sources/PowerSourceMonitor.swift \
     Sources/LidMonitor.swift \
     Sources/ActivitySourceMonitor.swift \

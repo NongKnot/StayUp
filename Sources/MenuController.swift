@@ -666,12 +666,8 @@ class MenuController: NSObject, NSMenuDelegate {
             setAutoMode(true)               // install hooks + reconcile (engages if busy)
             if wasManualActive {
                 Settings.wasActive = false
-                if sourceMonitor.isAnySourceWorking {
-                    engageReason = .auto
-                    reconcileAutoMode()
-                } else {
-                    disengage()
-                }
+                runAutoActions(AutoEngagePolicy.decide(
+                    .adoptedFromManual, autoFacts(working: sourceMonitor.isAnySourceWorking)))
             }
         }
         updateUI()
@@ -722,14 +718,7 @@ class MenuController: NSObject, NSMenuDelegate {
         guard !active else { return }
         engageReason = reason
         cancelAutoGrace()
-        // When the user opts to let the screen lock, we still hold the *system*
-        // awake for background work but drop the display-keep-awake layers
-        // — display-sleep assertion, caffeinate -d, and the virtual display —
-        // so macOS can lock and show the login screen. See Settings → General.
-        stack.apply(engaged: true,
-                    keepScreenOn: Settings.virtualDisplayEnabled,
-                    hasExternalDisplay: hasRealExternalDisplay,
-                    lidClosed: lidMonitor.isClosed ?? true)
+        applyStack(engaged: true)
         active = true
         Settings.wasActive = (reason == .manual)
         playClick()
@@ -766,8 +755,7 @@ class MenuController: NSObject, NSMenuDelegate {
         cancelManualNap()
         active = false
         Settings.wasActive = false
-        stack.apply(engaged: false, keepScreenOn: false, hasExternalDisplay: false,
-                    lidClosed: lidMonitor.isClosed ?? true)
+        applyStack(engaged: false)
         stopBatteryMonitor()
         // Powering off the accelerometer also fires onWalkStop if we were
         // mid-walk, which clears `isWalkingNow` and the icon animation.
@@ -777,6 +765,20 @@ class MenuController: NSObject, NSMenuDelegate {
         startTransition(toActive: false)
         updateUI()
         publishStatus()
+    }
+
+    /// The one place live facts become a stack `apply(...)`. When the user opts
+    /// to let the screen lock, we still hold the *system* awake for background
+    /// work but drop the display-keep-awake layers — display-sleep assertion,
+    /// caffeinate -d, and the virtual display — so macOS can lock and show the
+    /// login screen. See Settings → General. Lid unknown (no lid sensor —
+    /// desktops) counts as closed so the headless remote-GUI display still
+    /// spawns.
+    private func applyStack(engaged: Bool) {
+        stack.apply(engaged: engaged,
+                    keepScreenOn: Settings.virtualDisplayEnabled,
+                    hasExternalDisplay: hasRealExternalDisplay,
+                    lidClosed: lidMonitor.isClosed ?? true)
     }
 
     private func playClick() {
@@ -838,56 +840,49 @@ class MenuController: NSObject, NSMenuDelegate {
     // MARK: - Auto mode (Activity Sources)
     //
     // When `Settings.autoSourceEnabled`, `ActivitySourceMonitor` drives engage/
-    // disengage off the `~/.stayup/sources/*/active` contract folders. The callback always runs; the policy
-    // below decides how the signal interacts with manual intent and Don't Die.
+    // disengage off the `~/.stayup/sources/*/active` contract folders. All
+    // decisions live in `AutoEngagePolicy` (pure, shell-tested); this section
+    // only gathers facts, runs the returned actions, and owns the grace timer.
 
     private func handleActivitySourceChange(_ working: Bool) {
-        guard Settings.autoSourceEnabled else {
-            // Defensive: detection is normally stopped outside Auto, and any
-            // late signal must never move the stack.
-            updateUI()
-            return
-        }
-        reconcileAutoEngage(working: working)
+        runAutoActions(AutoEngagePolicy.decide(.sourceChanged, autoFacts(working: working)))
         updateUI()
     }
 
-    /// Auto-mode reconciliation policy.
-    ///
-    ///   • **Manual mode wins.** Choosing Off or On exits Auto entirely; Auto
-    ///     only moves the stack while the selected mode is Auto.
-    ///   • **Don't Die wins on battery.** If the low-battery cutout has already
-    ///     fired, auto must not re-engage, or it would defeat the cutout and
-    ///     drain the battery to zero. The flag resets on return to AC.
-    private func reconcileAutoEngage(working: Bool) {
-        if working {
-            cancelAutoGrace()                               // source is busy again — don't stand down
-            guard !active else { return }                   // already up — leave it
-            guard !dontDieTriggered else { return }         // low-battery cutout active
-            engage(reason: .auto)
-        } else {
-            guard active, engageReason == .auto else { return }  // only release what auto raised
-            scheduleAutoStandDown()
+    private func autoFacts(working: Bool) -> AutoEngagePolicy.Facts {
+        .init(autoEnabled: Settings.autoSourceEnabled,
+              working: working,
+              engaged: active,
+              engagedByAuto: engageReason == .auto,
+              dontDieTriggered: dontDieTriggered,
+              graceSecs: Settings.autoGraceSecs)
+    }
+
+    private func runAutoActions(_ actions: [AutoEngagePolicy.Action]) {
+        for action in actions {
+            switch action {
+            case .engage:                 engage(reason: .auto)
+            case .adoptAsAuto:            engageReason = .auto
+            case .standDown(let grace):   scheduleAutoStandDown(after: grace)
+            case .disengage:              disengage()
+            case .cancelStandDown:        cancelAutoGrace()
+            }
         }
     }
 
-    /// Stand down after the user-configured grace period, unless a source gets
-    /// busy again (which cancels the timer) or the conditions change by the
-    /// time it fires. A grace of 0 stands down immediately.
-    private func scheduleAutoStandDown() {
+    /// Timer mechanics only — whether and when to stand down is the policy's
+    /// call (`.standDown(after:)` always carries a positive grace; grace 0
+    /// comes back as `.disengage` instead).
+    private func scheduleAutoStandDown(after grace: Int) {
         cancelAutoGrace()
-        let grace = max(0, Settings.autoGraceSecs)
-        guard grace > 0 else { disengage(); return }
         autoStandDownAt = Date(timeIntervalSinceNow: TimeInterval(grace))   // for the popover countdown
         let t = Timer(timeInterval: TimeInterval(grace), repeats: false) { [weak self] _ in
             guard let self else { return }
             self.autoGraceTimer = nil
             self.autoStandDownAt = nil
-            // Re-check at fire time: only stand down if still auto-engaged and
-            // the source is still idle.
-            guard self.active, self.engageReason == .auto,
-                  !self.sourceMonitor.isAnySourceWorking else { return }
-            self.disengage()
+            // Re-check at fire time: the world may have changed while we slept.
+            self.runAutoActions(AutoEngagePolicy.decide(
+                .graceFired, self.autoFacts(working: self.sourceMonitor.isAnySourceWorking)))
         }
         RunLoop.main.add(t, forMode: .common)
         autoGraceTimer = t
@@ -908,24 +903,15 @@ class MenuController: NSObject, NSMenuDelegate {
         guard active else { return }
         // The planner diffs against the live state, so an unchanged policy is a
         // no-op and a keepScreenOn or lid flip re-arms exactly the display layers.
-        stack.apply(engaged: true,
-                    keepScreenOn: Settings.virtualDisplayEnabled,
-                    hasExternalDisplay: hasRealExternalDisplay,
-                    lidClosed: lidMonitor.isClosed ?? true)
+        applyStack(engaged: true)
     }
 
     /// Called from Settings `onChange` when the auto-mode toggle or
     /// grace value may have changed. Brings the live state in line immediately
     /// instead of waiting for the next source-activity edge.
     private func reconcileAutoMode() {
-        if Settings.autoSourceEnabled {
-            reconcileAutoEngage(working: sourceMonitor.isAnySourceWorking)
-        } else {
-            // Auto mode turned off: drop any pending stand-down and release the
-            // stack if auto is what raised it. A manual engage is left alone.
-            cancelAutoGrace()
-            if active, engageReason == .auto { disengage() }
-        }
+        runAutoActions(AutoEngagePolicy.decide(
+            .autoToggled, autoFacts(working: sourceMonitor.isAnySourceWorking)))
     }
 
     // MARK: - Don't Die
