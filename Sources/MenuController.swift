@@ -232,7 +232,7 @@ class MenuController: NSObject, NSMenuDelegate {
         // One-shot UserDefaults migration from the old `com.stayup.app`
         // bundle ID. Must run before anything reads Settings.
         Settings.migrateLegacyDefaultsIfNeeded()
-        _ = ExternalSourceWatcher.ensureStayUpFolder()
+        SourceProvisioner.ensureProvisioned()
 
         // Defensive: clear any leftover sleep-prevention state (esp. the helper's
         // system-wide `pmset disablesleep 1`) from a prior session that crashed
@@ -485,6 +485,7 @@ class MenuController: NSObject, NSMenuDelegate {
     /// Activity Source machinery, persists the flag, and reconciles the stack.
     func setAutoMode(_ enabled: Bool) {
         if enabled {
+            SourceProvisioner.ensureProvisioned()   // explicit mutation point — reads never scaffold
             let hookInstallError = connectReportedHooksForAutoIfAllowed()
             Settings.autoSourceEnabled = true
             startSourceDetection()

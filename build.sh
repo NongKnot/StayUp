@@ -48,6 +48,8 @@ swiftc -target "$TARGET" \
     Sources/LidMonitor.swift \
     Sources/ActivitySourceMonitor.swift \
     Sources/BundledSources.swift \
+    Sources/SourceCatalog.swift \
+    Sources/SourceProvisioner.swift \
     Sources/ActivitySourceHookInstaller.swift \
     Sources/ExternalSourceWatcher.swift \
     Sources/ActivitySourcesPopover.swift \

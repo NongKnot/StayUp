@@ -238,22 +238,8 @@ enum ActivitySourceHookInstaller {
 
     private static func hasEnabledReportedSource() -> Bool {
         let sourcesDir = home.appendingPathComponent(".stayup/sources", isDirectory: true)
-        guard let sourceDirs = try? FileManager.default.contentsOfDirectory(
-            at: sourcesDir,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return false }
-
-        for dir in sourceDirs {
-            let sourceURL = dir.appendingPathComponent("source.json")
-            guard let data = try? Data(contentsOf: sourceURL),
-                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let name = dict["name"] as? String
-            else { continue }
-            let method = (dict["method"] as? String) ?? (dict["type"] as? String) ?? ""
-            if method == "reported" && Settings.isSourceEnabled(name) { return true }
-        }
-        return false
+        return SourceCatalog.records(in: sourcesDir)
+            .contains { $0.method == "reported" && Settings.isSourceEnabled($0.name) }
     }
 
     // MARK: - Named test entry points (path-injectable)

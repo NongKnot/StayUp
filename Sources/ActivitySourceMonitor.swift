@@ -408,14 +408,7 @@ final class ActivitySourceMonitor {
         let sourceDir = markerURL
             .deletingLastPathComponent()   // active/
             .deletingLastPathComponent()   // <source>/
-        let sourceURL = sourceDir.appendingPathComponent("source.json")
-        if let data = try? Data(contentsOf: sourceURL),
-           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let name = dict["name"] as? String,
-           !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return name
-        }
-        return sourceDir.lastPathComponent
+        return SourceCatalog.record(sourceDir: sourceDir)?.name ?? sourceDir.lastPathComponent
     }
 
     /// Number of tools currently in flight for a session — files in the sibling

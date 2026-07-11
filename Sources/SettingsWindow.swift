@@ -543,7 +543,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             // Hook-health badge — managed reported sources only (observed
             // sources have no hooks to break).
             var badge: NSTextField?
-            if (source.method == "reported" || source.type == "reported"),
+            if source.isReported,
                ActivitySourceHookInstaller.canManageHooks(for: source.key) {
                 let dot = NSTextField(labelWithString: "●")
                 dot.font = NSFont.systemFont(ofSize: 9)
@@ -642,7 +642,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
     }
 
     private static func sourceNeedsManagedConnection(_ source: ExternalSourceWatcher.ConfiguredSourceInfo) -> Bool {
-        (source.method == "reported" || source.type == "reported") &&
+        source.isReported &&
             ActivitySourceHookInstaller.canManageHooks(for: source.key) &&
             !ActivitySourceHookInstaller.isHookHealthy(for: source.key)
     }
@@ -1200,17 +1200,18 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
         }
     }
     @objc private func openSourcesFolder() {
-        let url = ExternalSourceWatcher.ensureStayUpFolder()
+        let url = SourceProvisioner.ensureProvisioned()
         NSWorkspace.shared.open(url)
         sourceActionNote.stringValue = "Opened ~/.stayup."
     }
     @objc private func refreshSourceList() {
+        SourceProvisioner.ensureProvisioned()   // Refresh is an explicit re-scaffold point
         rebuildSourceList()
         sourceActionNote.stringValue = "Activity Sources refreshed."
         onChange?()
     }
     @objc private func restoreDefaultSources() {
-        ExternalSourceWatcher.restoreBundledDefaults()
+        SourceProvisioner.restoreBundledDefaults()
         rebuildSourceList()
         sourceActionNote.stringValue = "Default sources restored."
         onChange?()
@@ -1223,7 +1224,7 @@ Duck tip: best sources prove real work. App-open sources are okay if that is wha
         alert.alertStyle = .warning
         alert.messageText = "Delete \(source.displayName)?"
         var cleanupHooks = false
-        if source.method == "reported" || source.type == "reported" {
+        if source.isReported {
             let canManageHooks = ActivitySourceHookInstaller.canManageHooks(for: source.key)
             if canManageHooks {
                 alert.informativeText = "Disable removes the StayUp source and leaves tool config alone. Clean Up Hooks also removes StayUp entries from the tool config. Neither deletes apps, models, projects, logs, or unrelated config."

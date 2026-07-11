@@ -213,5 +213,5 @@ if !FileManager.default.fileExists(atPath: longTool.path) {
 print("activity source monitor policy: ok")
 SWIFT
 
-swiftc "$ROOT/Sources/ActivitySourceMonitor.swift" "$TEST_MAIN" -o "$BIN"
+swiftc "$ROOT/Sources/SourceCatalog.swift" "$ROOT/Sources/ActivitySourceMonitor.swift" "$TEST_MAIN" -o "$BIN"
 "$BIN" "$TMP/sources"

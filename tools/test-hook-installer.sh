@@ -582,5 +582,5 @@ if try Data(contentsOf: legacySettings) != beforeSecond {
 }
 SWIFT
 
-swiftc "$ROOT/Sources/BundledSources.swift" "$ROOT/Sources/ActivitySourceHookInstaller.swift" "$TEST_MAIN" -o "$BIN"
+swiftc "$ROOT/Sources/BundledSources.swift" "$ROOT/Sources/SourceCatalog.swift" "$ROOT/Sources/ActivitySourceHookInstaller.swift" "$TEST_MAIN" -o "$BIN"
 "$BIN" "$HOOKS" "$SCRIPT" "$CURSOR_HOOKS" "$CLAUDE_HOOKS"
