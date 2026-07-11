@@ -88,14 +88,9 @@ class MenuController: NSObject, NSMenuDelegate {
                 .map { namesByKey[$0] ?? "Activity Source" }
                 .sorted()
         }
-        func word(_ s: ActivitySourceSession) -> String {
-            if s.isExternal { return s.working ? "activity seen" : "idle" }
-            if s.working    { return s.toolsInFlight > 0 ? "running" : "active" }
-            return s.state == "waiting" ? "waiting" : "idle"
-        }
         let sessions = sourceMonitor.snapshotSessions().map { s -> [String: Any] in
             let now = Date()
-            var d: [String: Any] = ["label": s.terminalLabel, "state": word(s),
+            var d: [String: Any] = ["label": s.terminalLabel, "state": SessionPresenter.word(s),
                                     "working": s.working, "external": s.isExternal,
                                     "tools": s.toolsInFlight,
                                     "proof": s.proofLabel(now: now),
@@ -796,7 +791,7 @@ class MenuController: NSObject, NSMenuDelegate {
     private var hasRealExternalDisplay: Bool {
         let displayKey = NSDeviceDescriptionKey("NSScreenNumber")
         for screen in NSScreen.screens {
-            if screen.localizedName == "StayUp Display" { continue }
+            if screen.localizedName == VirtualDisplay.displayName { continue }
             guard let id = screen.deviceDescription[displayKey] as? CGDirectDisplayID else { continue }
             if CGDisplayIsBuiltin(id) == 0 { return true }
         }
@@ -1395,10 +1390,10 @@ class MenuController: NSObject, NSMenuDelegate {
             statusMenuItem.attributedTitle = dotTitle("○", "STAYUP · IDLE", on: false)
         } else if let at = autoStandDownAt, at.timeIntervalSinceNow > 0 {
             let secs = max(0, Int(at.timeIntervalSinceNow))
-            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON · naps in \(formatMMSS(secs))", on: true, color: .systemOrange)
+            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON · naps in \(SessionPresenter.mmss(secs))", on: true, color: .systemOrange)
         } else if let at = manualNapAt, at.timeIntervalSinceNow > 0 {
             let secs = max(0, Int(at.timeIntervalSinceNow))
-            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON · naps in \(formatMMSS(secs))", on: true, color: .systemGreen)
+            statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON · naps in \(SessionPresenter.mmss(secs))", on: true, color: .systemGreen)
         } else if engageReason == .auto && sourceMonitor.isAnySourceWorking {
             statusMenuItem.attributedTitle = dotTitle("●", "STAYUP · ON · sources working", on: true, color: .systemGreen)
         } else {
@@ -1503,39 +1498,15 @@ class MenuController: NSObject, NSMenuDelegate {
     }
 
     private func addActivitySourceSession(_ session: ActivitySourceSession, to menu: NSMenu) {
-        let dot: NSColor
-        let state: String
-        if session.isExternal {
-            dot = session.working ? .systemGreen : .systemGray
-            state = session.working ? "activity seen" : "idle"
-        } else if session.working {
-            dot = .systemGreen
-            state = session.toolsInFlight > 0 ? "running" : "active"
-        } else if session.state == "waiting" {
-            dot = .systemOrange
-            state = "waiting"
-        } else {
-            dot = .systemGray
-            state = "idle"
-        }
-
         let title = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        title.attributedTitle = dotTitle("●", session.terminalLabel, on: session.working, color: dot)
+        title.attributedTitle = dotTitle("●", session.terminalLabel,
+                                         on: session.working,
+                                         color: SessionPresenter.dotColor(session))
         title.isEnabled = false
         menu.addItem(title)
 
-        var detailBits = [state, session.proofLabel()]
-        if session.isExternal {
-            detailBits.append("estimate")
-        } else {
-            if session.working, session.toolsInFlight > 0 {
-                detailBits.append("\(session.toolsInFlight) tool\(session.toolsInFlight == 1 ? "" : "s")")
-            }
-            if let tx = session.transcriptPath, let toks = ActivitySourceMonitor.tokensUsed(transcriptPath: tx) {
-                detailBits.append("\(abbrevTokens(toks)) tok")
-            }
-        }
-        let detail = NSMenuItem(title: "   " + detailBits.joined(separator: " · "), action: nil, keyEquivalent: "")
+        let detail = NSMenuItem(title: "   " + SessionPresenter.detailBits(session).joined(separator: " · "),
+                                action: nil, keyEquivalent: "")
         detail.isEnabled = false
         menu.addItem(detail)
     }
@@ -1544,12 +1515,12 @@ class MenuController: NSObject, NSMenuDelegate {
         if isWalkingNow, let started = walkDetector.walkStartedAt {
             let secs  = Int(Date().timeIntervalSince(started))
             let steps = walkDetector.sessionSteps
-            walkStatsMenuItem.title    = "🚶  \(formatMMSS(secs))  ·  \(steps) step\(steps == 1 ? "" : "s")"
+            walkStatsMenuItem.title    = "🚶  \(SessionPresenter.mmss(secs))  ·  \(steps) step\(steps == 1 ? "" : "s")"
             walkStatsMenuItem.isHidden = false
             walkStatsSeparator.isHidden = false
         } else if let dur = lastWalkDuration {
             let secs = Int(dur)
-            walkStatsMenuItem.title    = "Last walk: \(formatMMSS(secs)) · \(lastWalkSteps) step\(lastWalkSteps == 1 ? "" : "s")"
+            walkStatsMenuItem.title    = "Last walk: \(SessionPresenter.mmss(secs)) · \(lastWalkSteps) step\(lastWalkSteps == 1 ? "" : "s")"
             walkStatsMenuItem.isHidden = false
             walkStatsSeparator.isHidden = false
         } else {
@@ -1587,22 +1558,6 @@ class MenuController: NSObject, NSMenuDelegate {
         } else {
             reconnectMenuItem.isHidden = true
             reconnectSeparator.isHidden = true
-        }
-    }
-
-    private func formatMMSS(_ totalSeconds: Int) -> String {
-        let h = totalSeconds / 3600
-        let m = (totalSeconds % 3600) / 60
-        let s = totalSeconds % 60
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s)
-                     : String(format: "%d:%02d", m, s)
-    }
-
-    private func abbrevTokens(_ n: Int) -> String {
-        switch n {
-        case 1_000_000...: return String(format: "%.1fM", Double(n) / 1_000_000)
-        case 1_000...:     return String(format: "%.1fK", Double(n) / 1_000)
-        default:           return "\(n)"
         }
     }
 

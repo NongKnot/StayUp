@@ -88,7 +88,7 @@ private final class ActivitySourcesContentVC: NSViewController {
 
         // Countdown to nap (the auto-grace timer) — only while it's ticking.
         if let secs = napIn, secs > 0 {
-            let foot = NSTextField(labelWithString: "Mac naps in \(Self.mmss(secs))")
+            let foot = NSTextField(labelWithString: "Mac naps in \(SessionPresenter.mmss(Int(secs)))")
             foot.font = .systemFont(ofSize: 11, weight: .medium)
             foot.textColor = .secondaryLabelColor
             stack.addArrangedSubview(foot)
@@ -97,50 +97,17 @@ private final class ActivitySourcesContentVC: NSViewController {
     }
 
     private func card(for s: ActivitySourceSession) -> NSView {
-        // Some sources report activity directly. Observed sources are estimates
-        // from file/socket/CPU activity, so describe the signal plainly.
-        let dot: NSColor
-        let stateWord: String
-        if s.isExternal {
-            dot = s.working ? .systemGreen : .systemGray
-            stateWord = s.working ? "activity seen" : "idle"
-        } else if s.working {
-            dot = .systemGreen
-            stateWord = s.toolsInFlight > 0 ? "running" : "active"   // tool vs thinking
-        } else if s.state == "waiting" {
-            dot = .systemOrange
-            stateWord = "waiting"
-        } else {
-            dot = .systemGray
-            stateWord = "idle"
-        }
-
         // Title row:  ● Source surface · project
         let title = NSMutableAttributedString()
         title.append(NSAttributedString(string: "● ", attributes: [
-            .foregroundColor: dot, .font: NSFont.systemFont(ofSize: 11)]))
+            .foregroundColor: SessionPresenter.dotColor(s), .font: NSFont.systemFont(ofSize: 11)]))
         title.append(NSAttributedString(string: s.terminalLabel, attributes: [
             .foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 13, weight: .medium)]))
         let titleField = NSTextField(labelWithAttributedString: title)
         titleField.lineBreakMode = .byTruncatingTail
 
         // Detail row:  running · heartbeat 8s ago · 2 tools · 1.2M tok
-        // External sources use the same proof label, e.g. socket/log/file.
-        var bits = [stateWord]
-        if s.isExternal {
-            bits = [stateWord]
-            bits.append(s.proofLabel())
-            bits.append("estimate")
-        } else {
-            bits.append(s.proofLabel())
-            if s.working, s.toolsInFlight > 0 {
-                bits.append("\(s.toolsInFlight) tool\(s.toolsInFlight == 1 ? "" : "s")")
-            }
-            if let tx = s.transcriptPath, let toks = ActivitySourceMonitor.tokensUsed(transcriptPath: tx) {
-                bits.append("\(Self.abbrev(toks)) tok")
-            }
-        }
-        let detail = NSTextField(labelWithString: bits.joined(separator: "  ·  "))
+        let detail = NSTextField(labelWithString: SessionPresenter.detailBits(s).joined(separator: "  ·  "))
         detail.font = .systemFont(ofSize: 11)
         detail.textColor = .secondaryLabelColor
 
@@ -149,21 +116,5 @@ private final class ActivitySourcesContentVC: NSViewController {
         card.alignment   = .leading
         card.spacing     = 2
         return card
-    }
-
-    /// Seconds → "M:SS" (or "H:MM:SS" past an hour).
-    private static func mmss(_ secs: TimeInterval) -> String {
-        let t = max(0, Int(secs))
-        let h = t / 3600, m = (t % 3600) / 60, s = t % 60
-        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
-    }
-
-    /// 1234 → "1.2K", 1_200_000 → "1.2M".
-    private static func abbrev(_ n: Int) -> String {
-        switch n {
-        case 1_000_000...: return String(format: "%.1fM", Double(n) / 1_000_000)
-        case 1_000...:     return String(format: "%.1fK", Double(n) / 1_000)
-        default:           return "\(n)"
-        }
     }
 }

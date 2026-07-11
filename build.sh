@@ -53,6 +53,7 @@ swiftc -target "$TARGET" \
     Sources/ActivitySourceHookInstaller.swift \
     Sources/ExternalSourceWatcher.swift \
     Sources/ActivitySourcesPopover.swift \
+    Sources/SessionPresenter.swift \
     Sources/WalkDetector.swift \
     Sources/StepCounter.swift \
     Sources/IconRenderer.swift \

@@ -52,11 +52,7 @@ final class SleepStack {
     /// assertion leaves `pmset disablesleep` set system-wide until reboot, so we
     /// disable defensively rather than trust `last`.
     func shutdown() {
-        caffeinate.disable()
-        sleepPreventer.disable()
-        closedLidPreventer.disable()
-        virtualDisplay.disable()
-        StayUpHelper.shared.disable()
+        for layer in SleepPlanner.Layer.allCases { disable(layer) }
         last = nil
     }
 

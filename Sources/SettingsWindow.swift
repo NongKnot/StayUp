@@ -30,6 +30,14 @@ import ServiceManagement
 /// * Helper paragraph trimmed to a single sentence.
 final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
+    // Picker options — one definition each; the builders and sync() both read
+    // these so the menu items and the stale-value normalisation can't drift.
+    private static let dontDiePctOptions = [5, 10, 20]
+    private static let autoGraceOptions: [(title: String, secs: Int)] = [
+        ("5 min", 300), ("15 min", 900), ("30 min", 1800),
+        ("1 hour", 3600), ("3 hours", 10800),
+    ]
+
     private var window: NSWindow?
 
     /// Tab identifiers. Kept in this order — affects the toolbar layout.
@@ -258,7 +266,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         dontDiePopup = NSPopUpButton()
         dontDiePopup.target = self
         dontDiePopup.action = #selector(dontDiePopupChanged)
-        for pct in [5, 10, 20] {
+        for pct in Self.dontDiePctOptions {
             let item = NSMenuItem(title: "\(pct)%", action: nil, keyEquivalent: "")
             item.tag = pct
             dontDiePopup.menu?.addItem(item)
@@ -329,8 +337,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         autoGracePopup = NSPopUpButton()
         autoGracePopup.target = self
         autoGracePopup.action = #selector(autoGraceChanged)
-        for (title, secs) in [("5 min", 300), ("15 min", 900), ("30 min", 1800),
-                              ("1 hour", 3600), ("3 hours", 10800)] {
+        for (title, secs) in Self.autoGraceOptions {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             item.tag = secs
             autoGracePopup.menu?.addItem(item)
@@ -987,7 +994,7 @@ If no supported source is strong enough, say what support would make it detectab
     private func sync() {
         dontDieCheck.state    = Settings.dontDieEnabled ? .on : .off
         let pct = Settings.dontDiePct
-        let opts = [5, 10, 20]
+        let opts = Self.dontDiePctOptions
         let closest = opts.min(by: { abs($0 - pct) < abs($1 - pct) }) ?? 10
         dontDiePopup.selectItem(withTag: closest)
         if closest != pct { Settings.dontDiePct = closest }   // normalize stale values
@@ -1026,7 +1033,7 @@ If no supported source is strong enough, say what support would make it detectab
         modeControl.selectedSegment = currentModeIndex?() ?? (Settings.autoSourceEnabled ? 2 : 0)
         rebuildSourceList()
 
-        let opts = [300, 900, 1800, 3600, 10800]
+        let opts = Self.autoGraceOptions.map(\.secs)
         let g = Settings.autoGraceSecs
         let closest = opts.min(by: { abs($0 - g) < abs($1 - g) }) ?? 300
         autoGracePopup.selectItem(withTag: closest)

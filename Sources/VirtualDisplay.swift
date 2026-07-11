@@ -15,6 +15,11 @@ import Foundation
 /// fixed-resolution display. Failure is silent: if creation fails (private
 /// API drift, future macOS), `enable()` does nothing.
 class VirtualDisplay {
+    /// The virtual display's name in the screen list. MenuController's
+    /// real-external-display check filters on this — keep them one constant
+    /// or a rename silently breaks external-display detection.
+    static let displayName = "StayUp Display"
+
     private(set) var isActive = false
     private var display: CGVirtualDisplay?
 
@@ -23,7 +28,7 @@ class VirtualDisplay {
 
         guard let descriptor = CGVirtualDisplayDescriptor() else { return }
         descriptor.queue = DispatchQueue.global(qos: .userInteractive)
-        descriptor.name = "StayUp Display"
+        descriptor.name = Self.displayName
         // Generic RGB profile values lifted from BetterDummy.
         descriptor.whitePoint   = CGPoint(x: 0.950, y: 1.000)
         descriptor.redPrimary   = CGPoint(x: 0.454, y: 0.242)
