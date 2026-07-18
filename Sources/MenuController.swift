@@ -52,6 +52,8 @@ class MenuController: NSObject, NSMenuDelegate {
 
     private var active           = false
     private var batteryTimer:    Timer?
+    private var helperWatchdogTimer: Timer?
+    private var helperStrikes    = 0
     private var dontDieTriggered = false
     private var menuRefreshTimer: Timer?
 
@@ -130,6 +132,7 @@ class MenuController: NSObject, NSMenuDelegate {
         if let sleepDisabled = StayUpHelper.shared.sleepDisabledLiveState() {
             status["sleepDisabled"] = sleepDisabled
         }
+        if helperStrikes > 0 { status["helperStrikes"] = helperStrikes }
         if let pct = powerSource.batteryPercent() { status["batteryPct"] = pct }
         if let lid = lidMonitor.isClosed { status["lidClosed"] = lid }
         if let at = autoStandDownAt ?? manualNapAt { status["napAt"] = Int(at.timeIntervalSince1970) }
@@ -726,6 +729,7 @@ class MenuController: NSObject, NSMenuDelegate {
         Settings.wasActive = (reason == .manual)
         playClick()
         startBatteryMonitor()    // poll battery only while engaged
+        startHelperWatchdog()    // verify layer 5 only while engaged
         if Settings.walkEnabled {
             walkDetector.start()  // accelerometer only while engaged + opted in
         }
@@ -768,6 +772,7 @@ class MenuController: NSObject, NSMenuDelegate {
         builtinBacklight.apply(dim: false)   // undim the built-in before the stack drops
         applyStack(engaged: false)
         stopBatteryMonitor()
+        stopHelperWatchdog()
         // Powering off the accelerometer also fires onWalkStop if we were
         // mid-walk, which clears `isWalkingNow` and the icon animation.
         walkDetector.stop()
@@ -975,6 +980,47 @@ class MenuController: NSObject, NSMenuDelegate {
     private func stopBatteryMonitor() {
         batteryTimer?.invalidate()
         batteryTimer = nil
+    }
+
+    // MARK: - Helper watchdog (layer 5)
+
+    // `pmset disablesleep` is system-wide state anyone root can flip — a second
+    // app instance's launch self-heal, the daemon's restart rescue, a stray
+    // pmset. When it's stripped behind an engaged app, everything still LOOKS
+    // safe (assertions held, duck active) but battery+lid-close sleeps the Mac
+    // (2026-07-18: killed every running agent). Policy in HelperWatchdog.swift;
+    // this owns the timer, the live ioreg read, and the strike counter.
+
+    private func startHelperWatchdog() {
+        helperWatchdogTimer?.invalidate()
+        let t = Timer(timeInterval: HelperWatchdog.intervalSecs, repeats: true) { [weak self] _ in
+            self?.helperWatchdogTick()
+        }
+        t.tolerance = 5
+        RunLoop.main.add(t, forMode: .common)
+        helperWatchdogTimer = t
+    }
+
+    private func stopHelperWatchdog() {
+        helperWatchdogTimer?.invalidate()
+        helperWatchdogTimer = nil
+        helperStrikes = 0
+    }
+
+    private func helperWatchdogTick() {
+        // No registered+approved helper means layer 5 was never promised —
+        // that gap has its own surface (updateCoverageItem's set-up line),
+        // so the watchdog has nothing to guard or accuse.
+        guard StayUpHelper.shared.isEnabled else { helperStrikes = 0; return }
+        let live = StayUpHelper.shared.sleepDisabledLiveState(forceRefresh: true)
+        let verdict = HelperWatchdog.tick(engaged: active, sleepDisabled: live,
+                                          strikes: helperStrikes)
+        if verdict.rearm { StayUpHelper.shared.enable() }
+        let wasDegraded = HelperWatchdog.degraded(strikes: helperStrikes)
+        helperStrikes = verdict.strikes
+        if HelperWatchdog.degraded(strikes: helperStrikes) != wasDegraded {
+            publishStatus()   // menu picks it up on open via updateCoverageItem
+        }
     }
 
     private func checkBattery() {
@@ -1450,12 +1496,17 @@ class MenuController: NSObject, NSMenuDelegate {
     /// engaged, on battery, and the Helper isn't enabled, the "safe" look
     /// would be a lie — show the gap and route the click to Settings.
     private func updateCoverageItem() {
-        let uncovered = active
+        let noHelper = active
             && powerSource.current == .battery
             && StayUpHelper.shared.status != .enabled
-        coverageItem.isHidden = !uncovered
-        if uncovered {
+        // Helper is set up but the kernel flag keeps getting stripped and the
+        // watchdog's re-arms aren't sticking — same broken promise, same line.
+        let wontStick = active && HelperWatchdog.degraded(strikes: helperStrikes)
+        coverageItem.isHidden = !(noHelper || wontStick)
+        if noHelper {
             coverageItem.title = "⚠︎ Lid-closed not covered on battery — set up Helper"
+        } else if wontStick {
+            coverageItem.title = "⚠︎ Lid-closed protection keeps switching off — click to check Helper"
         }
     }
 
