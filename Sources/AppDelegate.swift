@@ -7,6 +7,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // No built-in-panel crash recovery needed: the lid feature now dims the
+        // panel to backlight-0 (BuiltinBacklight), whose worst case a crash can
+        // leave — a dark panel — self-heals via the hardware brightness keys and
+        // lid-open wake, with no persisted state for a launch to undo.
         let mc = MenuController()
         menuController = mc
         mc.setup()

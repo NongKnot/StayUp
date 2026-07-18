@@ -19,6 +19,9 @@ class MenuController: NSObject, NSMenuDelegate {
     private let walkDetector       = WalkDetector()
     private let sourceMonitor       = ActivitySourceMonitor()
     private let externalWatcher    = ExternalSourceWatcher()
+    /// Dims the built-in panel to backlight-0 under a closed lid when "Keep
+    /// screen on" holds a remote session on it — see BuiltinBacklight.swift.
+    private let builtinBacklight   = BuiltinBacklight()
 
     // MARK: - State
 
@@ -231,7 +234,9 @@ class MenuController: NSObject, NSMenuDelegate {
 
         // Defensive: clear any leftover sleep-prevention state (esp. the helper's
         // system-wide `pmset disablesleep 1`) from a prior session that crashed
-        // or was force-killed while engaged.
+        // or was force-killed while engaged. A built-in dimmed to backlight-0 by
+        // a prior run needs no such self-heal — the hardware brightness keys and
+        // lid-open wake bring it back with the app dead (BuiltinBacklight.swift).
         stack.shutdown()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -330,6 +335,7 @@ class MenuController: NSObject, NSMenuDelegate {
         blinkTimer = nil
         zzzTimer?.invalidate()
         zzzTimer = nil
+        builtinBacklight.apply(dim: false)   // undim the built-in before teardown
         stack.shutdown()
         walkDetector.stop()
         powerSource.stop()
@@ -402,7 +408,8 @@ class MenuController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         // Keep screen on (vs let the Mac lock). Mirrors Settings → General.
-        keepScreenItem = NSMenuItem(title: "Keep screen on", action: #selector(toggleKeepScreen), keyEquivalent: "")
+        // Also darkens a laptop's built-in under a shut lid (BuiltinBacklight).
+        keepScreenItem = NSMenuItem(title: "Keep screen on when lid closed", action: #selector(toggleKeepScreen), keyEquivalent: "")
         keepScreenItem.target = self
         menu.addItem(keepScreenItem)
         menu.addItem(.separator())
@@ -728,6 +735,13 @@ class MenuController: NSObject, NSMenuDelegate {
         startTransition(toActive: true)
         updateUI()
         publishStatus()
+        // Converge the screen policy once the display list is quiet. Engaging
+        // under an already-closed lid (launch resume, or auto re-engage after a
+        // grace cycle) fires no lid flip or topology event, so without this the
+        // built-in never gets dimmed — the feature would silently do nothing for
+        // the rest of the session. The planner diffs, so the inner applyStack is
+        // a no-op; this exists to reach the builtinBacklight dim in reapply.
+        scheduleScreenPolicyReapply()
     }
 
     /// Bring the WalkDetector state in line with `Settings.walkEnabled`
@@ -751,6 +765,7 @@ class MenuController: NSObject, NSMenuDelegate {
         cancelManualNap()
         active = false
         Settings.wasActive = false
+        builtinBacklight.apply(dim: false)   // undim the built-in before the stack drops
         applyStack(engaged: false)
         stopBatteryMonitor()
         // Powering off the accelerometer also fires onWalkStop if we were
@@ -767,14 +782,33 @@ class MenuController: NSObject, NSMenuDelegate {
     /// to let the screen lock, we still hold the *system* awake for background
     /// work but drop the display-keep-awake layers — display-sleep assertion,
     /// caffeinate -d, and the virtual display — so macOS can lock and show the
-    /// login screen. See Settings → General. Lid unknown (no lid sensor —
-    /// desktops) counts as closed so the headless remote-GUI display still
-    /// spawns.
+    /// login screen. See Settings → General. `hasBuiltinDisplay` is the LIVE
+    /// display-list fact (`hasBuiltinDisplayOnline`), not a machine-class guess:
+    /// a laptop that keeps its built-in online under a shut lid gets no virtual
+    /// (the built-in, dimmed to backlight-0, is the surface); if a built-in ever
+    /// offlines at lid-close the next reapply sees it gone and spawns the virtual
+    /// so a remote session never loses its only surface.
     private func applyStack(engaged: Bool) {
         stack.apply(engaged: engaged,
                     keepScreenOn: Settings.virtualDisplayEnabled,
                     hasExternalDisplay: hasRealExternalDisplay,
-                    lidClosed: lidMonitor.isClosed ?? true)
+                    hasBuiltinDisplay: hasBuiltinDisplayOnline)
+    }
+
+    /// True when a built-in panel is currently in the active display list. Live
+    /// on purpose: backlight-0 leaves the built-in ONLINE (just dark), so a
+    /// normally-dimmed laptop reads true and takes no virtual display; but a
+    /// built-in that actually leaves the list (an unexpected clamshell-off on
+    /// some machine/OS) reads false, so the planner spawns the virtual and the
+    /// remote session keeps a surface — the guarantee a static lid-sensor proxy
+    /// would silently drop. Also correct for an iMac (built-in, no lid sensor),
+    /// which the proxy misread as a virtual-needing desktop.
+    private var hasBuiltinDisplayOnline: Bool {
+        var count: UInt32 = 0
+        CGGetActiveDisplayList(0, nil, &count)
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        CGGetActiveDisplayList(count, &ids, &count)
+        return ids.prefix(Int(count)).contains { CGDisplayIsBuiltin($0) != 0 }
     }
 
     private func playClick() {
@@ -900,6 +934,16 @@ class MenuController: NSObject, NSMenuDelegate {
         // The planner diffs against the live state, so an unchanged policy is a
         // no-op and a keepScreenOn or lid flip re-arms exactly the display layers.
         applyStack(engaged: true)
+        // Dim the built-in to backlight-0 only when the lid is *strictly* closed
+        // (desktops report nil and never dim) and Keep screen on is held — the
+        // remote session is riding the built-in's framebuffer, so a dark panel
+        // costs no power while CRD still streams it. Lid-open (isClosed == false)
+        // restores brightness. Unlike the retired compositor gate this needs no
+        // second display present: dimming the sole panel is safe (hardware keys
+        // and lid-open both bring it back).
+        builtinBacklight.apply(dim: active
+                          && Settings.virtualDisplayEnabled
+                          && lidMonitor.isClosed == true)
     }
 
     /// Called from Settings `onChange` when the auto-mode toggle or

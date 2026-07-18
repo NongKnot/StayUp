@@ -40,6 +40,7 @@ swiftc -target "$TARGET" \
     Sources/SleepPreventer.swift \
     Sources/ClosedLidPreventer.swift \
     Sources/VirtualDisplay.swift \
+    Sources/BuiltinBacklight.swift \
     Sources/StayUpHelper.swift \
     Sources/SleepStackPlanner.swift \
     Sources/SleepStack.swift \

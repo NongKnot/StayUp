@@ -14,6 +14,9 @@ dist/
 .env.*
 *.local.md
 
+# Sparkle update-signing private key — must never be committed
+sparkle_private_key.txt
+
 # Only shipped docs
 *.md
 !README.md

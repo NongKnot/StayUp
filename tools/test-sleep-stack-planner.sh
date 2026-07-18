@@ -24,11 +24,13 @@ func check(_ label: String, _ got: [LayerAction], _ want: [LayerAction]) {
     }
 }
 
-// Engaged, screen kept on, no real external, lid shut — the baseline closed-lid
-// "on" state. The virtual display is the surface and the display-sleep flag
-// stays held: without it the virtual display idle-sleeps (~4 min) and remote
-// GUI sessions go black (CRD regression, 2026-07-04). Clamshell firmware keeps
-// the shut built-in panel dark regardless.
+// Engaged, screen kept on, no real external, NO built-in panel — the headless
+// desktop (Mac mini/Studio) baseline. The virtual display is the only surface a
+// remote session can land on, so it spawns; the display-sleep flag stays held or
+// the virtual idle-sleeps (~4 min) and remote GUI sessions go black (CRD
+// regression, 2026-07-04). Laptops never take this path — they keep their
+// built-in as the surface (dimmed to backlight-0 on lid-close, outside the
+// planner). Default hasBuiltinDisplay:false = the desktop case.
 let engagedKeepOn = Desired(engaged: true, keepScreenOn: true, hasExternalDisplay: false)
 
 // 1. Engage from idle (lid shut): all five layers come up, virtual display
@@ -87,28 +89,28 @@ check("no-op reapply",
       plan(from: engagedKeepOn, to: engagedKeepOn),
       [])
 
-// 8. Lid open (MacBook in normal use): everything but the virtual display —
-//    the built-in screen is right there, no fake display needed.
-let engagedLidOpen = Desired(engaged: true, keepScreenOn: true,
-                             hasExternalDisplay: false, lidClosed: false)
-check("engage lid open",
-      plan(from: nil, to: engagedLidOpen),
+// 8. Laptop engage (a built-in panel is present): everything but the virtual
+//    display — the built-in is the surface, lid open or shut. On lid-close it's
+//    dimmed to backlight-0 (handled in MenuController, not the planner), so no
+//    fake display is ever spawned. This is the case that used to spawn a virtual
+//    on lid-close; it no longer does.
+let laptopKeepOn = Desired(engaged: true, keepScreenOn: true,
+                           hasExternalDisplay: false, hasBuiltinDisplay: true)
+check("engage laptop (built-in present)",
+      plan(from: nil, to: laptopKeepOn),
       [.enable(.caffeinate, preventDisplaySleep: true),
        .enable(.sleepPreventer, preventDisplaySleep: true),
        .enable(.closedLid, preventDisplaySleep: false),
        .enable(.helper, preventDisplaySleep: false)])
 
-// 9. Lid shuts mid-engage: only the virtual display comes up — display
-//    prevention stays held so the virtual display can't idle-sleep out from
-//    under a remote session.
-check("lid closes",
-      plan(from: engagedLidOpen, to: engagedKeepOn),
-      [.enable(.virtualDisplay, preventDisplaySleep: false)])
-
-// 10. Lid reopens: only the virtual display drops.
-check("lid opens",
-      plan(from: engagedKeepOn, to: engagedLidOpen),
-      [.disable(.virtualDisplay)])
+// 9. keepScreenOn flips off on a laptop: only caffeinate/sleepPreventer re-arm.
+//    Contrast test 4 (desktop) which also drops the virtual — a laptop never had
+//    one to drop.
+check("laptop keepScreenOn flip",
+      plan(from: laptopKeepOn, to: Desired(engaged: true, keepScreenOn: false,
+                                           hasExternalDisplay: false, hasBuiltinDisplay: true)),
+      [.rearm(.caffeinate, preventDisplaySleep: false),
+       .rearm(.sleepPreventer, preventDisplaySleep: false)])
 
 print("sleep stack planner policy: ok")
 SWIFT

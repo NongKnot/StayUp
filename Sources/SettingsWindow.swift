@@ -236,11 +236,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
         addGap(in: stack)
 
-        // Keep screen on (vs let the Mac lock). Mirrors the menu toggle.
-        screenLockCheck = NSButton(checkboxWithTitle: "Keep screen on",
+        // Keep screen on (vs let the Mac lock). Mirrors the menu toggle. On a
+        // laptop this also darkens the built-in (backlight off) when the lid
+        // shuts on a remote session — see BuiltinBacklight.swift.
+        screenLockCheck = NSButton(checkboxWithTitle: "Keep screen on when lid closed",
                                    target: self, action: #selector(screenLockToggled))
         stack.addArrangedSubview(screenLockCheck)
-        addDesc("Off lets the Mac lock while work continues.", in: stack)
+        addDesc("Holds a screen for remote use; darkens the laptop's own panel under a shut lid. Off lets the Mac lock while work continues.", in: stack)
 
         addGap(in: stack)
 

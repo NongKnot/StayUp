@@ -32,10 +32,10 @@ final class SleepStack {
     /// disengage, a screen-policy flip, an external-display change, and a lid
     /// flip are all just this. No-ops cleanly when nothing changed. `Desired`
     /// stays an internal detail — callers pass the four facts directly.
-    func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool, lidClosed: Bool) {
+    func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool, hasBuiltinDisplay: Bool) {
         let desired = SleepPlanner.Desired(
             engaged: engaged, keepScreenOn: keepScreenOn,
-            hasExternalDisplay: hasExternalDisplay, lidClosed: lidClosed)
+            hasExternalDisplay: hasExternalDisplay, hasBuiltinDisplay: hasBuiltinDisplay)
         for action in SleepPlanner.plan(from: last, to: desired) { execute(action) }
         last = desired
     }

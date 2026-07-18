@@ -126,7 +126,9 @@ enum Settings {
 
     /// Keep the *screen* awake too, not just the system. Default ON (the v1
     /// behavior: display-sleep assertion + optional virtual display, so remote
-    /// GUI tools have a screen-shaped target while engaged). Turn OFF for a
+    /// GUI tools have a screen-shaped target while engaged). Also drives the
+    /// closed-lid built-in dim: on a laptop, lid-close with this ON backlights
+    /// the built-in to 0 (BuiltinBacklight) while CRD streams it. Turn OFF for a
     /// security-friendlier mode: the system stays awake for background work,
     /// but the display is allowed to sleep so macOS can lock and show the login
     /// screen. Gates `VirtualDisplay` + the display-sleep layers in

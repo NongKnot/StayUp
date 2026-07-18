@@ -16,12 +16,13 @@ enum SleepPlanner {
         var keepScreenOn: Bool
         /// A real external screen makes the virtual display redundant.
         var hasExternalDisplay: Bool
-        /// Lid shut (or the machine has no lid — desktops pass true so the
-        /// headless remote-GUI display still spawns). Lid open = the real
-        /// built-in screen is available, so no fake display is needed.
-        /// Defaults true: pre-lid-gating behavior for callers/tests that
-        /// don't care.
-        var lidClosed: Bool = true
+        /// True on Macs with a built-in panel (laptops). A laptop always has a
+        /// real surface — the built-in — so it never needs the fake display;
+        /// on lid-close the built-in is dimmed to backlight-0 (MenuController,
+        /// not here) rather than swapped for a virtual. Only headless desktops
+        /// (Mac mini/Studio, no built-in) spawn the virtual. Defaults false:
+        /// the desktop case, matching the historic "spawn the virtual" default.
+        var hasBuiltinDisplay: Bool = false
     }
 
     /// The five layers, by name. Not a uniform protocol — they differ (flags, the
@@ -52,13 +53,16 @@ enum SleepPlanner {
         case .closedLid, .helper:
             return (d.engaged, false)
         case .virtualDisplay:
-            // Mimics an external screen while keep-screen-on is wanted but no real
-            // screen is visible — lid shut and no external (desktops pass
-            // lidClosed=true, so the headless remote-GUI display still spawns).
-            // Bench 2026-07-03: a CGVirtualDisplay survives lid-close and can be
-            // created lid-closed while the Helper holds sleep, so gating on the
-            // lid is safe.
-            return (d.engaged && d.keepScreenOn && !d.hasExternalDisplay && d.lidClosed, false)
+            // The virtual display is a substitute surface for a machine with no
+            // built-in panel: a headless desktop (Mac mini/Studio) carrying a
+            // remote-GUI session. Laptops keep their real built-in — lid open OR
+            // shut — and dim it to backlight-0 on lid-close (MenuController), so
+            // they never spawn the virtual. Redundant when a real external is
+            // present. Bench 2026-07-11: JIT spawn-at-close does NOT trigger
+            // clamshell (0/200), and genuine clamshell-off needs a phantom
+            // display held open (rejected) — so the laptop path is backlight-0,
+            // not a virtual.
+            return (d.engaged && d.keepScreenOn && !d.hasExternalDisplay && !d.hasBuiltinDisplay, false)
         }
     }
 
