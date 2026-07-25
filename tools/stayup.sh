@@ -92,6 +92,9 @@ def render():
     L = lambda k: "●" if s.get(k) else "○"
     pmset = L("sleepDisabled") if "sleepDisabled" in s else "?"
     print(f"Layers: caffeinate {L('caffeinate')} · sleep {L('sleep')} · lid {L('lid')} · vdisplay {L('virtualDisplay')} · helper {L('helper')} · pmset {pmset}")
+    lcm = s.get("lidClosedMode")
+    if lcm:
+        print("Lid closed: " + ("🛑 panel OFF (clamshell)" if lcm == "clamshell-off" else "🌙 backlight-0 fallback"))
     if s.get("walking"):
         w = s.get("walkSecs", 0); print(f"Walk: 🚶 {w//60}:{w%60:02d} · {s.get('walkSteps',0)} steps")
     print("─" * 52)
