@@ -25,6 +25,17 @@ class MenuController: NSObject, NSMenuDelegate {
 
     // MARK: - State
 
+    /// Laptop mirror-phantom state (see reconcileMirror). `mirrorVetoed` sticks
+    /// for the rest of the engage once mirroring changed the built-in's
+    /// resolution or ran out of retries — the planner then drops the phantom
+    /// and lid-close falls back to backlight-0 (shipped 1.3.6 behavior).
+    private var mirrorVetoed = false
+    private var mirrorRetries = 0
+    private static let MIRROR_MAX_RETRIES = 5
+    /// Which lid-closed mechanism is live: "clamshell-off" (panel genuinely
+    /// off) or "backlight-fallback" (panel driven dark). nil lid-open/idle.
+    private var lidClosedMode: String?
+
     private var statusItem:        NSStatusItem!
     private var menu:              NSMenu!
     private var statusMenuItem:    NSMenuItem!
@@ -135,6 +146,7 @@ class MenuController: NSObject, NSMenuDelegate {
         if helperStrikes > 0 { status["helperStrikes"] = helperStrikes }
         if let pct = powerSource.batteryPercent() { status["batteryPct"] = pct }
         if let lid = lidMonitor.isClosed { status["lidClosed"] = lid }
+        if let m = lidClosedMode { status["lidClosedMode"] = m }
         if let at = autoStandDownAt ?? manualNapAt { status["napAt"] = Int(at.timeIntervalSince1970) }
         if isWalkingNow, let started = walkDetector.walkStartedAt {
             status["walkSecs"] = Int(Date().timeIntervalSince(started))
@@ -257,8 +269,9 @@ class MenuController: NSObject, NSMenuDelegate {
         powerSource.start()
         powerSource.onChange = { [weak self] src in self?.handlePowerSourceChange(src) }
 
-        // Lid watcher — the virtual display is lid-gated (spawns when the lid
-        // shuts, stands down when it opens). No-op on Macs without a lid.
+        // Lid watcher — a lid flip re-runs the screen policy: mirror upkeep,
+        // the clamshell verdict, and backlight-0 fallback all live in
+        // reapplyScreenPolicy. No-op on Macs without a lid.
         // Deferred, never synchronous: the flip races macOS's own clamshell
         // display reconfiguration (see SCREEN_SETTLE_SECS).
         lidMonitor.start()
@@ -724,6 +737,8 @@ class MenuController: NSObject, NSMenuDelegate {
         guard !active else { return }
         engageReason = reason
         cancelAutoGrace()
+        mirrorVetoed = false     // every engage earns a fresh mirror attempt
+        mirrorRetries = 0
         applyStack(engaged: true)
         active = true
         Settings.wasActive = (reason == .manual)
@@ -770,6 +785,7 @@ class MenuController: NSObject, NSMenuDelegate {
         active = false
         Settings.wasActive = false
         builtinBacklight.apply(dim: false)   // undim the built-in before the stack drops
+        lidClosedMode = nil
         applyStack(engaged: false)
         stopBatteryMonitor()
         stopHelperWatchdog()
@@ -787,14 +803,16 @@ class MenuController: NSObject, NSMenuDelegate {
     /// to let the screen lock, we still hold the *system* awake for background
     /// work but drop the display-keep-awake layers — display-sleep assertion,
     /// caffeinate -d, and the virtual display — so macOS can lock and show the
-    /// login screen. See Settings → General. `suppressVirtualDisplay` is
-    /// temporarily the live built-in fact (behavior-identical to 1.3.6); the
-    /// mirror-veto wiring replaces it (see reconcileMirror).
+    /// login screen. See Settings → General.
+    /// `suppressVirtualDisplay`: a laptop whose mirror was vetoed this engage
+    /// runs the shipped 1.3.6 shape (no phantom, backlight-0 at lid-close).
+    /// Desktops (no built-in active) never suppress — the phantom is their
+    /// only surface.
     private func applyStack(engaged: Bool) {
         stack.apply(engaged: engaged,
                     keepScreenOn: Settings.virtualDisplayEnabled,
                     hasExternalDisplay: hasRealExternalDisplay,
-                    suppressVirtualDisplay: hasBuiltinDisplayOnline,
+                    suppressVirtualDisplay: hasBuiltinDisplayOnline && mirrorVetoed,
                     virtualDisplayMode: builtinNativeMode)
     }
 
@@ -940,20 +958,78 @@ class MenuController: NSObject, NSMenuDelegate {
     /// display); the system-sleep + closed-lid + helper layers keep holding.
     /// No-op when idle or when the policy hasn't actually changed.
     private func reapplyScreenPolicy() {
-        guard active else { return }
+        guard active else { lidClosedMode = nil; return }
         // The planner diffs against the live state, so an unchanged policy is a
         // no-op and a keepScreenOn or lid flip re-arms exactly the display layers.
         applyStack(engaged: true)
+        reconcileMirror()
+        // Clamshell verdict — verify, don't assume (consult 2026-07-11): after
+        // the settle delay, the ONLINE list says whether macOS powered the
+        // built-in off. Gone → genuinely off, nothing to dim. Still online →
+        // the phantom didn't count for clamshell (or engage happened under an
+        // already-closed lid, where JIT spawn can't trigger it — bench 0/200)
+        // → backlight-0, exactly the shipped 1.3.6 behavior.
+        let builtinOnline = DisplayMirror.builtinIsInOnlineList()
+        if Settings.virtualDisplayEnabled && lidMonitor.isClosed == true {
+            lidClosedMode = builtinOnline ? "backlight-fallback" : "clamshell-off"
+        } else {
+            lidClosedMode = nil
+        }
         // Dim the built-in to backlight-0 only when the lid is *strictly* closed
-        // (desktops report nil and never dim) and Keep screen on is held — the
-        // remote session is riding the built-in's framebuffer, so a dark panel
-        // costs no power while CRD still streams it. Lid-open (isClosed == false)
-        // restores brightness. Unlike the retired compositor gate this needs no
-        // second display present: dimming the sole panel is safe (hardware keys
-        // and lid-open both bring it back).
+        // (desktops report nil and never dim), Keep screen on is held, and the
+        // panel is still online (clamshell-off left nothing to dim). Lid-open
+        // restores brightness; hardware keys are the ultimate safety net.
         builtinBacklight.apply(dim: active
                           && Settings.virtualDisplayEnabled
-                          && lidMonitor.isClosed == true)
+                          && lidMonitor.isClosed == true
+                          && builtinOnline)
+        publishStatus()
+    }
+
+    /// Converge the laptop mirror: phantom active + built-in active → phantom
+    /// mirrors the built-in. Runs ONLY from reapplyScreenPolicy (settle-
+    /// deferred). Verifies the built-in's pixel mode survived mirroring — the
+    /// 2026-07-08 rejection (2056→1728) must never silently return; any drop
+    /// vetoes the mirror for the rest of this engage and stands the phantom
+    /// down. STAYUP_NO_MIRROR=1 skips mirroring (HITL fallback drill).
+    private func reconcileMirror() {
+        guard active, Settings.virtualDisplayEnabled, !mirrorVetoed,
+              ProcessInfo.processInfo.environment["STAYUP_NO_MIRROR"] == nil else { return }
+        guard let builtin = builtinDisplayID else { return }   // desktop, or mid-clamshell
+        guard let phantom = DisplayMirror.phantomDisplayID() else {
+            // The phantom spawned this very apply may not be in the display
+            // list yet (async arrival). Retry via the coalesced settle path;
+            // give up into the veto after MIRROR_MAX_RETRIES.
+            if stack.snapshot().virtualDisplay {
+                if mirrorRetries < Self.MIRROR_MAX_RETRIES {
+                    mirrorRetries += 1
+                    scheduleScreenPolicyReapply()
+                } else {
+                    vetoMirror(reason: "phantom never appeared in display list")
+                }
+            }
+            return
+        }
+        mirrorRetries = 0
+        guard !DisplayMirror.isMirrored(phantom) else { return }   // converged
+        let before = CGDisplayCopyDisplayMode(builtin)
+        let ok = DisplayMirror.mirror(phantom, to: builtin)
+        let after = CGDisplayCopyDisplayMode(builtin)
+        let resolutionHeld = before?.pixelWidth == after?.pixelWidth
+                          && before?.pixelHeight == after?.pixelHeight
+        if !ok || !resolutionHeld {
+            _ = DisplayMirror.unmirror(phantom)
+            vetoMirror(reason: ok ? "mirroring changed the built-in's resolution" : "mirror call failed")
+        }
+    }
+
+    /// Stand the mirror experiment down for the rest of this engage: the
+    /// planner drops the phantom and the laptop runs the shipped 1.3.6 shape.
+    private func vetoMirror(reason: String) {
+        mirrorVetoed = true
+        FileHandle.standardError.write(Data(
+            "[StayUp] DisplayMirror: vetoed — \(reason); falling back to backlight-0\n".utf8))
+        applyStack(engaged: true)   // planner sees the veto and drops the phantom
     }
 
     /// Called from Settings `onChange` when the auto-mode toggle or
