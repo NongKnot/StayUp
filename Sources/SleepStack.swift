@@ -26,17 +26,35 @@ final class SleepStack {
     /// Last applied state — the planner diffs against it. Also the engaged truth.
     private var last: SleepPlanner.Desired?
 
+    /// Mode the phantom was last enabled with. Executor detail, not planner
+    /// state: a mode change respawns the layer (the planner can't see modes).
+    private var virtualDisplayMode: VirtualDisplay.Mode?
+
     var isEngaged: Bool { last?.engaged ?? false }
 
     /// Reconcile the live stack to this state. The one entry point: engage,
     /// disengage, a screen-policy flip, an external-display change, and a lid
     /// flip are all just this. No-ops cleanly when nothing changed. `Desired`
     /// stays an internal detail — callers pass the four facts directly.
-    func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool, suppressVirtualDisplay: Bool) {
+    func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool,
+               suppressVirtualDisplay: Bool, virtualDisplayMode mode: VirtualDisplay.Mode?) {
         let desired = SleepPlanner.Desired(
             engaged: engaged, keepScreenOn: keepScreenOn,
             hasExternalDisplay: hasExternalDisplay, suppressVirtualDisplay: suppressVirtualDisplay)
+        // A live phantom whose target mode genuinely changed (user changed the
+        // built-in's resolution mid-mirror) must respawn at the new mode. nil
+        // is "no opinion" (built-in offline mid-clamshell), never a downgrade.
+        if virtualDisplay.isActive, let mode, mode != virtualDisplayMode {
+            virtualDisplay.disable()
+        }
+        virtualDisplayMode = mode ?? virtualDisplayMode
         for action in SleepPlanner.plan(from: last, to: desired) { execute(action) }
+        // The planner diffs on/off, so a respawn after the mode-change disable
+        // needs an explicit re-enable when the plan (rightly) saw no change.
+        if desired.engaged, desired.keepScreenOn, !desired.hasExternalDisplay,
+           !desired.suppressVirtualDisplay, !virtualDisplay.isActive {
+            virtualDisplay.enable(mode: virtualDisplayMode)
+        }
         last = desired
     }
 
@@ -79,7 +97,7 @@ final class SleepStack {
         case .caffeinate:     caffeinate.enable(preventDisplaySleep: pds)
         case .sleepPreventer: sleepPreventer.enable(preventDisplaySleep: pds)
         case .closedLid:      _ = closedLidPreventer.enable()
-        case .virtualDisplay: virtualDisplay.enable()
+        case .virtualDisplay: virtualDisplay.enable(mode: virtualDisplayMode)
         case .helper:         StayUpHelper.shared.enable()
         }
     }

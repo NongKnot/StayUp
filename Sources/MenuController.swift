@@ -794,23 +794,31 @@ class MenuController: NSObject, NSMenuDelegate {
         stack.apply(engaged: engaged,
                     keepScreenOn: Settings.virtualDisplayEnabled,
                     hasExternalDisplay: hasRealExternalDisplay,
-                    suppressVirtualDisplay: hasBuiltinDisplayOnline)
+                    suppressVirtualDisplay: hasBuiltinDisplayOnline,
+                    virtualDisplayMode: builtinNativeMode)
     }
 
-    /// True when a built-in panel is currently in the active display list. Live
-    /// on purpose: backlight-0 leaves the built-in ONLINE (just dark), so a
-    /// normally-dimmed laptop reads true and takes no virtual display; but a
-    /// built-in that actually leaves the list (an unexpected clamshell-off on
-    /// some machine/OS) reads false, so the planner spawns the virtual and the
-    /// remote session keeps a surface — the guarantee a static lid-sensor proxy
-    /// would silently drop. Also correct for an iMac (built-in, no lid sensor),
-    /// which the proxy misread as a virtual-needing desktop.
-    private var hasBuiltinDisplayOnline: Bool {
+    /// The built-in panel's display ID if it is currently in the ACTIVE display
+    /// list, else nil. Live on purpose: backlight-0 leaves the built-in ONLINE
+    /// (just dark); a built-in that actually leaves the list (clamshell-off —
+    /// now the *goal* at lid-close) reads nil, so the phantom is the surface.
+    private var builtinDisplayID: CGDirectDisplayID? {
         var count: UInt32 = 0
         CGGetActiveDisplayList(0, nil, &count)
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
         CGGetActiveDisplayList(count, &ids, &count)
-        return ids.prefix(Int(count)).contains { CGDisplayIsBuiltin($0) != 0 }
+        return ids.prefix(Int(count)).first { CGDisplayIsBuiltin($0) != 0 }
+    }
+
+    private var hasBuiltinDisplayOnline: Bool { builtinDisplayID != nil }
+
+    /// The built-in's CURRENT mode as a phantom spec — nil when no built-in is
+    /// active (desktop, or mid-clamshell; the executor then keeps its last
+    /// mode). Refresh 0 (some panels report it) falls back to 60.
+    private var builtinNativeMode: VirtualDisplay.Mode? {
+        guard let id = builtinDisplayID, let m = CGDisplayCopyDisplayMode(id) else { return nil }
+        return VirtualDisplay.Mode(pixelsWide: m.pixelWidth, pixelsHigh: m.pixelHeight,
+                                   refreshRate: m.refreshRate > 0 ? m.refreshRate : 60)
     }
 
     private func playClick() {
