@@ -787,17 +787,14 @@ class MenuController: NSObject, NSMenuDelegate {
     /// to let the screen lock, we still hold the *system* awake for background
     /// work but drop the display-keep-awake layers — display-sleep assertion,
     /// caffeinate -d, and the virtual display — so macOS can lock and show the
-    /// login screen. See Settings → General. `hasBuiltinDisplay` is the LIVE
-    /// display-list fact (`hasBuiltinDisplayOnline`), not a machine-class guess:
-    /// a laptop that keeps its built-in online under a shut lid gets no virtual
-    /// (the built-in, dimmed to backlight-0, is the surface); if a built-in ever
-    /// offlines at lid-close the next reapply sees it gone and spawns the virtual
-    /// so a remote session never loses its only surface.
+    /// login screen. See Settings → General. `suppressVirtualDisplay` is
+    /// temporarily the live built-in fact (behavior-identical to 1.3.6); the
+    /// mirror-veto wiring replaces it (see reconcileMirror).
     private func applyStack(engaged: Bool) {
         stack.apply(engaged: engaged,
                     keepScreenOn: Settings.virtualDisplayEnabled,
                     hasExternalDisplay: hasRealExternalDisplay,
-                    hasBuiltinDisplay: hasBuiltinDisplayOnline)
+                    suppressVirtualDisplay: hasBuiltinDisplayOnline)
     }
 
     /// True when a built-in panel is currently in the active display list. Live

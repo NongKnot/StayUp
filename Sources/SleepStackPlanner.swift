@@ -16,13 +16,13 @@ enum SleepPlanner {
         var keepScreenOn: Bool
         /// A real external screen makes the virtual display redundant.
         var hasExternalDisplay: Bool
-        /// True on Macs with a built-in panel (laptops). A laptop always has a
-        /// real surface — the built-in — so it never needs the fake display;
-        /// on lid-close the built-in is dimmed to backlight-0 (MenuController,
-        /// not here) rather than swapped for a virtual. Only headless desktops
-        /// (Mac mini/Studio, no built-in) spawn the virtual. Defaults false:
-        /// the desktop case, matching the historic "spawn the virtual" default.
-        var hasBuiltinDisplay: Bool = false
+        /// True when MenuController has vetoed the laptop mirror-phantom this
+        /// engage (mirroring changed the built-in's resolution, or kept
+        /// failing). Suppresses only the virtual display; every other layer
+        /// holds. Default false: spawn the phantom — on laptops it is mirrored
+        /// onto the built-in (invisible lid-open) so lid-close triggers
+        /// genuine clamshell-off; on desktops it is the headless surface.
+        var suppressVirtualDisplay: Bool = false
     }
 
     /// The five layers, by name. Not a uniform protocol — they differ (flags, the
@@ -53,16 +53,14 @@ enum SleepPlanner {
         case .closedLid, .helper:
             return (d.engaged, false)
         case .virtualDisplay:
-            // The virtual display is a substitute surface for a machine with no
-            // built-in panel: a headless desktop (Mac mini/Studio) carrying a
-            // remote-GUI session. Laptops keep their real built-in — lid open OR
-            // shut — and dim it to backlight-0 on lid-close (MenuController), so
-            // they never spawn the virtual. Redundant when a real external is
-            // present. Bench 2026-07-11: JIT spawn-at-close does NOT trigger
-            // clamshell (0/200), and genuine clamshell-off needs a phantom
-            // display held open (rejected) — so the laptop path is backlight-0,
-            // not a virtual.
-            return (d.engaged && d.keepScreenOn && !d.hasExternalDisplay && !d.hasBuiltinDisplay, false)
+            // The phantom serves two machines: a headless desktop's only
+            // surface, and a laptop's clamshell trigger (pre-existing display
+            // at lid-close → macOS powers the built-in genuinely off; bench:
+            // JIT spawn-at-close never triggers it, 0/200). Redundant when a
+            // real external is present; suppressed only by an explicit mirror
+            // veto (MenuController). Mirrored-vs-extended is executor policy,
+            // not a planner fact.
+            return (d.engaged && d.keepScreenOn && !d.hasExternalDisplay && !d.suppressVirtualDisplay, false)
         }
     }
 

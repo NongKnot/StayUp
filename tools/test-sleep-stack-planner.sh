@@ -30,7 +30,7 @@ func check(_ label: String, _ got: [LayerAction], _ want: [LayerAction]) {
 // the virtual idle-sleeps (~4 min) and remote GUI sessions go black (CRD
 // regression, 2026-07-04). Laptops never take this path — they keep their
 // built-in as the surface (dimmed to backlight-0 on lid-close, outside the
-// planner). Default hasBuiltinDisplay:false = the desktop case.
+// planner). Default suppressVirtualDisplay:false — the phantom spawns unless MenuController has vetoed the mirror.
 let engagedKeepOn = Desired(engaged: true, keepScreenOn: true, hasExternalDisplay: false)
 
 // 1. Engage from idle (lid shut): all five layers come up, virtual display
@@ -89,28 +89,37 @@ check("no-op reapply",
       plan(from: engagedKeepOn, to: engagedKeepOn),
       [])
 
-// 8. Laptop engage (a built-in panel is present): everything but the virtual
-//    display — the built-in is the surface, lid open or shut. On lid-close it's
-//    dimmed to backlight-0 (handled in MenuController, not the planner), so no
-//    fake display is ever spawned. This is the case that used to spawn a virtual
-//    on lid-close; it no longer does.
+// 8. Laptop engage (built-in present, mirror healthy): since 2026-07-25 the
+//    phantom spawns again (1.2 rule) — it is mirrored onto the built-in by
+//    MenuController (invisible lid-open) so that a lid-close triggers genuine
+//    macOS clamshell-off. suppressVirtualDisplay:false is the healthy default.
 let laptopKeepOn = Desired(engaged: true, keepScreenOn: true,
-                           hasExternalDisplay: false, hasBuiltinDisplay: true)
-check("engage laptop (built-in present)",
+                           hasExternalDisplay: false, suppressVirtualDisplay: false)
+check("engage laptop (mirror healthy)",
       plan(from: nil, to: laptopKeepOn),
       [.enable(.caffeinate, preventDisplaySleep: true),
        .enable(.sleepPreventer, preventDisplaySleep: true),
        .enable(.closedLid, preventDisplaySleep: false),
+       .enable(.virtualDisplay, preventDisplaySleep: false),
        .enable(.helper, preventDisplaySleep: false)])
 
-// 9. keepScreenOn flips off on a laptop: only caffeinate/sleepPreventer re-arm.
-//    Contrast test 4 (desktop) which also drops the virtual — a laptop never had
-//    one to drop.
-check("laptop keepScreenOn flip",
-      plan(from: laptopKeepOn, to: Desired(engaged: true, keepScreenOn: false,
-                                           hasExternalDisplay: false, hasBuiltinDisplay: true)),
-      [.rearm(.caffeinate, preventDisplaySleep: false),
-       .rearm(.sleepPreventer, preventDisplaySleep: false)])
+// 9. Mirror vetoed mid-engage (mirroring changed the built-in's resolution, or
+//    kept failing): only the phantom drops — everything else keeps holding.
+//    This is the "continue exactly as 1.3.6" fallback: built-in stays the
+//    surface, backlight-0 on lid-close (MenuController, not the planner).
+check("mirror veto drops only the phantom",
+      plan(from: laptopKeepOn, to: Desired(engaged: true, keepScreenOn: true,
+                                           hasExternalDisplay: false, suppressVirtualDisplay: true)),
+      [.disable(.virtualDisplay)])
+
+// 10. Vetoed laptop engage from idle: four layers, no phantom (the 1.3.6 shape).
+check("engage laptop vetoed",
+      plan(from: nil, to: Desired(engaged: true, keepScreenOn: true,
+                                  hasExternalDisplay: false, suppressVirtualDisplay: true)),
+      [.enable(.caffeinate, preventDisplaySleep: true),
+       .enable(.sleepPreventer, preventDisplaySleep: true),
+       .enable(.closedLid, preventDisplaySleep: false),
+       .enable(.helper, preventDisplaySleep: false)])
 
 print("sleep stack planner policy: ok")
 SWIFT
