@@ -952,6 +952,17 @@ class MenuController: NSObject, NSMenuDelegate {
         // re-checks once the panel is back.
         guard let builtin = builtinDisplayID, let cur = builtinNativeMode else { return }
         guard cur != g.reference else { return }
+        // Picker sovereignty inside the window: a deviation while System
+        // Settings is frontmost is far more likely the user's own pick than
+        // the store's imposition (impositions land at transitions, with no
+        // picker in front). Stand down instead of fighting it — a real yank
+        // left un-undone self-corrects on the user's next pick.
+        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.systempreferences" {
+            topologyUndoGuard = nil
+            FileHandle.standardError.write(Data(
+                "[StayUp] topology-memory undo stood down after \(g.event): System Settings frontmost, user pick wins\n".utf8))
+            return
+        }
         let ok = DisplayMirror.restoreLogicalModePermanently(
             builtin,
             pointsWide: g.reference.pointsWide, pointsHigh: g.reference.pointsHigh,
@@ -1212,7 +1223,11 @@ class MenuController: NSObject, NSMenuDelegate {
 
     /// Converge the laptop mirror: phantom active + built-in active → phantom
     /// mirrors the built-in. Runs ONLY from reapplyScreenPolicy (settle-
-    /// deferred). Verifies the built-in's pixel mode survived mirroring — the
+    /// deferred). Accepted design cost: from spawn until this converges
+    /// (~1.5–3s, up to ~9s across retries) the phantom is a visible extended
+    /// display — pre-existing the lid close is the whole feature, and
+    /// mirroring closer to arrival would re-enter the settle window the
+    /// 2026-07-04 Dock crash forbids. Verifies the built-in's pixel mode survived mirroring — the
     /// 2026-07-08 rejection (2056→1728) must never silently return; any drop
     /// vetoes the mirror for the rest of this engage and stands the phantom
     /// down. `mirrorVetoed`'s only writer besides this is `engage()`'s
@@ -1256,9 +1271,6 @@ class MenuController: NSObject, NSMenuDelegate {
         let before = CGDisplayCopyDisplayMode(builtin)
         let ok = DisplayMirror.mirror(phantom, to: builtin)
         let after = CGDisplayCopyDisplayMode(builtin)
-        let resolutionHeld = before != nil && after != nil && Self.modesMatch(
-            width: before!.pixelWidth, height: before!.pixelHeight, refresh: before!.refreshRate,
-            width: after!.pixelWidth, height: after!.pixelHeight, refresh: after!.refreshRate)
         if !ok {
             // A failed mirror CALL is usually transient topology churn (the
             // lid-open reshuffle vetoed here twice on 2026-07-27's HITL) —
@@ -1270,11 +1282,27 @@ class MenuController: NSObject, NSMenuDelegate {
             } else {
                 vetoMirror(reason: "mirror call kept failing")
             }
-        } else if !resolutionHeld {
-            _ = DisplayMirror.unmirror(phantom)
-            vetoMirror(reason: "mirroring changed the built-in's resolution")
+        } else if let before, let after {
+            if Self.modesMatch(
+                width: before.pixelWidth, height: before.pixelHeight, refresh: before.refreshRate,
+                width: after.pixelWidth, height: after.pixelHeight, refresh: after.refreshRate) {
+                mirrorRetries = 0
+            } else {
+                _ = DisplayMirror.unmirror(phantom)
+                vetoMirror(reason: "mirroring changed the built-in's resolution")
+            }
         } else {
-            mirrorRetries = 0
+            // The call succeeded but the built-in's mode was unreadable (mid-
+            // churn transience) — the resolution verify couldn't complete, so
+            // don't trust the mirror AND don't burn the permanent veto on it:
+            // unmirror and retry, so the next establishment is fully verified.
+            _ = DisplayMirror.unmirror(phantom)
+            if mirrorRetries < Self.MIRROR_MAX_RETRIES {
+                mirrorRetries += 1
+                scheduleScreenPolicyReapply()
+            } else {
+                vetoMirror(reason: "built-in mode unreadable at establishment")
+            }
         }
     }
 
