@@ -44,8 +44,12 @@ final class SleepStack {
     /// disengage, a screen-policy flip, an external-display change, and a lid
     /// flip are all just this. No-ops cleanly when nothing changed. `Desired`
     /// stays an internal detail — callers pass the four facts directly.
+    /// Returns true when the table upgrade cycled a live phantom (a real
+    /// teardown+arrival topology transition the before/after snapshot diff
+    /// cannot see — the caller's undo guard needs to know).
+    @discardableResult
     func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool,
-               suppressVirtualDisplay: Bool, virtualDisplayModes modes: [VirtualDisplay.Mode]?) {
+               suppressVirtualDisplay: Bool, virtualDisplayModes modes: [VirtualDisplay.Mode]?) -> Bool {
         let desired = SleepPlanner.Desired(
             engaged: engaged, keepScreenOn: keepScreenOn,
             hasExternalDisplay: hasExternalDisplay, suppressVirtualDisplay: suppressVirtualDisplay)
@@ -53,8 +57,10 @@ final class SleepStack {
         // per engage — see `virtualDisplayModes`) is the ONLY reason a live
         // phantom respawns outside the planner. nil is "no opinion" (built-in
         // offline mid-clamshell), never a reset.
+        var phantomCycled = false
         if virtualDisplay.isActive, let modes, modes != virtualDisplayModes {
             virtualDisplay.disable()
+            phantomCycled = true
         }
         virtualDisplayModes = modes ?? virtualDisplayModes
         for action in SleepPlanner.plan(from: last, to: desired) { execute(action) }
@@ -66,6 +72,7 @@ final class SleepStack {
             virtualDisplay.enable(modes: virtualDisplayModes)
         }
         last = desired
+        return phantomCycled
     }
 
     /// Re-assert protection on wake. Only SleepPreventer needs it — the other

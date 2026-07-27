@@ -377,14 +377,23 @@ class MenuController: NSObject, NSMenuDelegate {
         zzzTimer = nil
         builtinBacklight.apply(dim: false)   // undim the built-in before teardown
         let hadPhantom = stack.snapshot().virtualDisplay
-        let quitReference = builtinNativeMode
+        // Reference priority: an armed in-window guard first (a store yank may
+        // still be pending undo — the LIVE mode is then the yank, not the
+        // user's pick), then the live mode, then the pre-close mode (clamshell-
+        // off: the built-in is offline, builtinNativeMode is nil, and without
+        // the fallback the stale solo memory would greet the next lid-open
+        // with no StayUp left to undo it).
+        let armedReference = topologyUndoGuard.flatMap { Date() < $0.until ? $0.reference : nil }
+        let quitReference = armedReference ?? builtinNativeMode ?? lastBuiltinMode
         stack.shutdown()
         // Quit tears the phantom down with no surviving reapply pass to run
         // the topology undo guard — macOS re-applies the remembered solo
         // config within milliseconds of the display leaving. One bounded
         // synchronous check before exit covers it (the .permanently write
-        // lands in WindowServer, so it outlives this process).
-        if hadPhantom, let want = quitReference, !hasRealExternalDisplay {
+        // lands in WindowServer, so it outlives this process). Runs for a
+        // pending in-window undo too, even when the phantom already went down
+        // (disengage moments before quit — the scheduled checks die with us).
+        if hadPhantom || armedReference != nil, let want = quitReference, !hasRealExternalDisplay {
             Thread.sleep(forTimeInterval: 0.8)
             if let builtin = builtinDisplayID, let cur = builtinNativeMode, cur != want {
                 let ok = DisplayMirror.restoreLogicalModePermanently(
@@ -768,7 +777,7 @@ class MenuController: NSObject, NSMenuDelegate {
 
     @objc private func toggleKeepScreen() {
         Settings.virtualDisplayEnabled.toggle()
-        scheduleScreenPolicyReapply()
+        applyScreenPolicyNow()
         updateUI()
         publishStatus()
     }
@@ -877,7 +886,7 @@ class MenuController: NSObject, NSMenuDelegate {
         // pre-transition mode is the reference the undo guard restores.
         let phantomBefore = stack.snapshot().virtualDisplay
         let modeBefore = builtinNativeMode
-        stack.apply(engaged: engaged,
+        let phantomCycled = stack.apply(engaged: engaged,
                     keepScreenOn: effectiveKeepScreenOn,
                     hasExternalDisplay: hasRealExternalDisplay,
                     suppressVirtualDisplay: suppressPhantom,
@@ -885,6 +894,16 @@ class MenuController: NSObject, NSMenuDelegate {
         if stack.snapshot().virtualDisplay != phantomBefore {
             armTopologyUndoGuard(reference: modeBefore,
                                  event: phantomBefore ? "phantom teardown" : "phantom arrival")
+        } else if phantomCycled {
+            // The table-upgrade respawn is teardown+arrival with an unchanged
+            // snapshot. Its one real occurrence is the first pass after an
+            // engage-under-closed-lid lid-open, where the live mode may ALREADY
+            // be the store's pair imposition — so arm from lastBuiltinMode
+            // (never adopts a disputed mode), not modeBefore. nil (built-in
+            // never seen this engage) arms nothing: with no trusted reference,
+            // an undo could cement the wrong mode permanently.
+            armTopologyUndoGuard(reference: lastBuiltinMode,
+                                 event: "phantom respawn (mode-table upgrade)")
         }
     }
 
@@ -893,11 +912,26 @@ class MenuController: NSObject, NSMenuDelegate {
     /// deferred reapply path only runs while engaged — the teardown
     /// transition (disengage, veto) needs the guard to fire while idle too.
     private func armTopologyUndoGuard(reference: VirtualDisplay.Mode?, event: String) {
+        // A real external display in the mix → stand down: its arrival/removal
+        // legitimately re-applies the user's own remembered config for THAT
+        // display set, which must not be undone.
+        guard !hasRealExternalDisplay else { topologyUndoGuard = nil; return }
         // No reference (built-in offline: closed lid, or a desktop) → nothing
-        // to restore. A real external display in the mix → stand down: its
-        // arrival/removal legitimately re-applies the user's own remembered
-        // config for THAT display set, which must not be undone.
-        guard let reference, !hasRealExternalDisplay else { topologyUndoGuard = nil; return }
+        // to arm — but a pending in-window undo from an earlier transition
+        // stays armed (a teardown flip under a closed lid must not wipe the
+        // arrival flip's pending undo). Expired guards are dropped here so
+        // they can't linger and block lid-open arming / mode adoption.
+        guard var reference else {
+            if let g = topologyUndoGuard, Date() >= g.until { topologyUndoGuard = nil }
+            return
+        }
+        // Unresolved dispute: an in-window guard whose reference differs means
+        // the CURRENT mode may itself be the store's imposition (veto teardown,
+        // rapid engage→disengage) — keep the older capture (the user's mode)
+        // instead of adopting the disputed one as the new reference.
+        if let g = topologyUndoGuard, Date() < g.until, g.reference != reference {
+            reference = g.reference
+        }
         topologyUndoGuard = (reference, event,
                              Date().addingTimeInterval(Self.TOPOLOGY_UNDO_WINDOW_SECS))
         for delay: TimeInterval in [2.5, 6.5] {
@@ -1024,6 +1058,18 @@ class MenuController: NSObject, NSMenuDelegate {
         }
         screenPolicyReapply = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.SCREEN_SETTLE_SECS, execute: work)
+    }
+
+    /// A USER-initiated policy change (keep-screen toggle, Settings edit) takes
+    /// effect immediately — deferring it behind the settle delay can miss a
+    /// lid close inside the window (toggle off → close lid → the late apply
+    /// then sees the phantom as sole display and keeps the Mac awake all
+    /// night). The settle rule exists to avoid mutating displays concurrently
+    /// with macOS's own reconfiguration, so only when a topology event is
+    /// already settling does the change ride the pending pass instead.
+    private func applyScreenPolicyNow() {
+        guard screenPolicyReapply == nil else { return }   // pending pass picks it up
+        reapplyScreenPolicy()
     }
 
     // MARK: - Power source
@@ -1380,7 +1426,7 @@ class MenuController: NSObject, NSMenuDelegate {
             s.onChange = { [weak self] in
                 self?.reconcileWalkDetector()
                 self?.reconcileAutoMode()
-                self?.scheduleScreenPolicyReapply()
+                self?.applyScreenPolicyNow()
                 self?.updateUI()
             }
             s.loginIsEnabled = { [weak self] in self?.isLaunchAtLoginEnabled() ?? false }
