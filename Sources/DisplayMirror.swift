@@ -48,6 +48,24 @@ enum DisplayMirror {
         configure { CGConfigureDisplayMirrorOfDisplay($0, phantom, kCGNullDirectDisplay) }
     }
 
+    /// Set `id`'s active mode to the one with this exact logical (point) and
+    /// framebuffer (pixel) size. True when already there or set successfully.
+    /// Used to pin the standalone phantom to its 2x mode after clamshell-off —
+    /// left to itself macOS picks the raw 1x framebuffer mode (HITL 2026-07-27).
+    static func setLogicalMode(_ id: CGDirectDisplayID,
+                               pointsWide: Int, pointsHigh: Int,
+                               pixelsWide: Int, pixelsHigh: Int) -> Bool {
+        if let cur = CGDisplayCopyDisplayMode(id),
+           cur.width == pointsWide, cur.pixelWidth == pixelsWide { return true }
+        let opts = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        guard let modes = CGDisplayCopyAllDisplayModes(id, opts) as? [CGDisplayMode],
+              let target = modes.first(where: {
+                  $0.width == pointsWide && $0.height == pointsHigh
+                  && $0.pixelWidth == pixelsWide && $0.pixelHeight == pixelsHigh
+              }) else { return false }
+        return CGDisplaySetDisplayMode(id, target, nil) == .success
+    }
+
     // MARK: - Plumbing
 
     private static func configure(_ body: (CGDisplayConfigRef) -> CGError) -> Bool {

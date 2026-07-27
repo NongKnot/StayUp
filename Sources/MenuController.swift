@@ -37,6 +37,13 @@ class MenuController: NSObject, NSMenuDelegate {
     /// changing mode sometime *after* the immediate post-mirror verify passed —
     /// on the settle-deferred follow-up pass it schedules for itself.
     private var mirroredBuiltinMode: VirtualDisplay.Mode?
+    /// The built-in's mode as last seen while it was online — refreshed every
+    /// screen-policy pass. The clamshell-off pin reads this, NOT
+    /// `mirroredBuiltinMode`: a macOS-auto-restored mirror bypasses the
+    /// establishment path, so mirror-time capture alone can be empty
+    /// (HITL 2026-07-27 — the pin silently skipped and the closed-lid desktop
+    /// doubled). Cleared on disengage.
+    private var lastBuiltinMode: VirtualDisplay.Mode?
     /// Which lid-closed mechanism is live: "clamshell-off" (panel genuinely
     /// off) or "backlight-fallback" (panel driven dark). nil lid-open/idle.
     private var lidClosedMode: String?
@@ -797,6 +804,7 @@ class MenuController: NSObject, NSMenuDelegate {
         builtinBacklight.apply(dim: false)   // undim the built-in before the stack drops
         lidClosedMode = nil
         mirroredBuiltinMode = nil
+        lastBuiltinMode = nil
         applyStack(engaged: false)
         stopBatteryMonitor()
         stopHelperWatchdog()
@@ -862,6 +870,7 @@ class MenuController: NSObject, NSMenuDelegate {
     private var builtinNativeMode: VirtualDisplay.Mode? {
         guard let id = builtinDisplayID, let m = CGDisplayCopyDisplayMode(id) else { return nil }
         return VirtualDisplay.Mode(pixelsWide: m.pixelWidth, pixelsHigh: m.pixelHeight,
+                                   pointsWide: m.width, pointsHigh: m.height,
                                    refreshRate: m.refreshRate > 0 ? m.refreshRate : 60)
     }
 
@@ -1001,6 +1010,22 @@ class MenuController: NSObject, NSMenuDelegate {
         } else {
             lidClosedMode = nil
         }
+        // Keep the pre-close desktop spec fresh while the built-in is online.
+        if let m = builtinNativeMode { lastBuiltinMode = m }
+        // Standalone phantom defaults to its raw 1x framebuffer mode, doubling
+        // the logical desktop and reflowing windows on reopen (HITL
+        // 2026-07-27). When clamshell has taken the built-in offline, pin the
+        // phantom to the 2x mode whose logical size matches the pre-close
+        // desktop. The set fires a displays-changed event whose reapply finds
+        // the mode already correct — no loop.
+        if lidClosedMode == "clamshell-off", let want = lastBuiltinMode ?? mirroredBuiltinMode,
+           let phantom = DisplayMirror.phantomDisplayID() {
+            let pinned = DisplayMirror.setLogicalMode(phantom,
+                                                      pointsWide: want.pointsWide, pointsHigh: want.pointsHigh,
+                                                      pixelsWide: want.pixelsWide, pixelsHigh: want.pixelsHigh)
+            FileHandle.standardError.write(Data(
+                "[StayUp] phantom pin \(want.pointsWide)x\(want.pointsHigh)@2x: \(pinned ? "ok" : "FAILED")\n".utf8))
+        }
         // Dim the built-in to backlight-0 only when the lid is *strictly* closed
         // (desktops report nil and never dim), Keep screen on is held, and the
         // panel is still online (clamshell-off left nothing to dim). Lid-open
@@ -1046,6 +1071,11 @@ class MenuController: NSObject, NSMenuDelegate {
         }
         mirrorRetries = 0
         if DisplayMirror.isMirrored(phantom) {
+            // macOS auto-restores a session's mirror pair when the phantom
+            // respawns, bypassing our establishment path below — record the
+            // reference mode here too or the under-mirror change check (and
+            // anything else keyed on it) is silently unarmed (HITL 2026-07-27).
+            if mirroredBuiltinMode == nil { mirroredBuiltinMode = builtinNativeMode }
             // Already converged — but a delayed downgrade (built-in mode
             // changed sometime after the immediate post-mirror verify below
             // passed) must not silently stand. Re-read the built-in's current
@@ -1072,6 +1102,7 @@ class MenuController: NSObject, NSMenuDelegate {
             // (settle-deferred) to catch a downgrade that shows up after this
             // immediate check already passed — the delayed-downgrade hole.
             mirroredBuiltinMode = VirtualDisplay.Mode(pixelsWide: before.pixelWidth, pixelsHigh: before.pixelHeight,
+                                                      pointsWide: before.width, pointsHigh: before.height,
                                                       refreshRate: before.refreshRate > 0 ? before.refreshRate : 60)
             scheduleScreenPolicyReapply()
         }

@@ -24,6 +24,14 @@ class VirtualDisplay {
     struct Mode: Equatable {
         var pixelsWide: Int
         var pixelsHigh: Int
+        /// Logical (point) size — what the desktop "looks like". Advertising
+        /// the pixel size as the mode makes the standalone phantom run 1x
+        /// (HITL 2026-07-27: closed-lid desktop jumped to 2940×1912 logical,
+        /// windows reflowed on reopen). The mode is advertised in POINTS with
+        /// the pixel size as the framebuffer cap, so hiDPI engages and the
+        /// closed-lid desktop is identical to the open-lid one.
+        var pointsWide: Int
+        var pointsHigh: Int
         var refreshRate: Double
     }
 
@@ -40,6 +48,8 @@ class VirtualDisplay {
 
         let pxW = mode?.pixelsWide ?? 1920
         let pxH = mode?.pixelsHigh ?? 1080
+        let ptW = mode?.pointsWide ?? 1920
+        let ptH = mode?.pointsHigh ?? 1080
         let hz  = mode?.refreshRate ?? 60
 
         guard let descriptor = CGVirtualDisplayDescriptor() else { return }
@@ -75,7 +85,10 @@ class VirtualDisplay {
 
         guard let settings = CGVirtualDisplaySettings() else { return }
         settings.hiDPI = 1
-        if let vdMode = CGVirtualDisplayMode(width: UInt32(pxW), height: UInt32(pxH), refreshRate: hz) {
+        // Mode in POINTS, maxPixels in pixels: a Retina spec (points < pixels)
+        // yields a proper 2x mode; the desktop default (points == pixels) is
+        // the historic 1x config unchanged.
+        if let vdMode = CGVirtualDisplayMode(width: UInt32(ptW), height: UInt32(ptH), refreshRate: hz) {
             settings.modes = [vdMode]
         }
 
