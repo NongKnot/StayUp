@@ -57,25 +57,50 @@ enum DisplayMirror {
                                pixelsWide: Int, pixelsHigh: Int) -> Bool {
         if let cur = CGDisplayCopyDisplayMode(id),
            cur.width == pointsWide, cur.pixelWidth == pixelsWide { return true }
-        let opts = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
-        guard let modes = CGDisplayCopyAllDisplayModes(id, opts) as? [CGDisplayMode],
-              let target = modes.first(where: {
-                  $0.width == pointsWide && $0.height == pointsHigh
-                  && $0.pixelWidth == pixelsWide && $0.pixelHeight == pixelsHigh
-              }) else { return false }
+        guard let target = findMode(id, pointsWide: pointsWide, pointsHigh: pointsHigh,
+                                    pixelsWide: pixelsWide, pixelsHigh: pixelsHigh) else { return false }
         return CGDisplaySetDisplayMode(id, target, nil) == .success
+    }
+
+    /// Same mode lookup as `setLogicalMode`, applied through a config
+    /// transaction completed `.permanently` — which also rewrites macOS's
+    /// stored config for the LIVE topology. Used ONLY to undo a stale mode
+    /// the per-topology display memory re-imposed at our own phantom's
+    /// arrival/teardown/lid-open (see MenuController's topologyUndoGuard):
+    /// after one undo the store agrees with the user's mode, so the next
+    /// transition has nothing stale to impose. A plain CGDisplaySetDisplayMode
+    /// cannot do this job — it neither rewrites the store nor survives the
+    /// setting process exiting (both on-tape, 2026-07-27).
+    static func restoreLogicalModePermanently(_ id: CGDirectDisplayID,
+                                              pointsWide: Int, pointsHigh: Int,
+                                              pixelsWide: Int, pixelsHigh: Int) -> Bool {
+        guard let target = findMode(id, pointsWide: pointsWide, pointsHigh: pointsHigh,
+                                    pixelsWide: pixelsWide, pixelsHigh: pixelsHigh) else { return false }
+        return configure(scope: .permanently) { CGConfigureDisplayWithDisplayMode($0, id, target, nil) }
     }
 
     // MARK: - Plumbing
 
-    private static func configure(_ body: (CGDisplayConfigRef) -> CGError) -> Bool {
+    private static func findMode(_ id: CGDirectDisplayID,
+                                 pointsWide: Int, pointsHigh: Int,
+                                 pixelsWide: Int, pixelsHigh: Int) -> CGDisplayMode? {
+        let opts = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        guard let modes = CGDisplayCopyAllDisplayModes(id, opts) as? [CGDisplayMode] else { return nil }
+        return modes.first {
+            $0.width == pointsWide && $0.height == pointsHigh
+            && $0.pixelWidth == pixelsWide && $0.pixelHeight == pixelsHigh
+        }
+    }
+
+    private static func configure(scope: CGConfigureOption = .forSession,
+                                  _ body: (CGDisplayConfigRef) -> CGError) -> Bool {
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success, let config else { return false }
         guard body(config) == .success else {
             CGCancelDisplayConfiguration(config)
             return false
         }
-        return CGCompleteDisplayConfiguration(config, .forSession) == .success
+        return CGCompleteDisplayConfiguration(config, scope) == .success
     }
 
     private static func onlineDisplays() -> [CGDirectDisplayID] {

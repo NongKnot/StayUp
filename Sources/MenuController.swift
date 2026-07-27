@@ -38,6 +38,24 @@ class MenuController: NSObject, NSMenuDelegate {
     /// path — HITL 2026-07-27). The clamshell-off pin reads this. Cleared on
     /// disengage.
     private var lastBuiltinMode: VirtualDisplay.Mode?
+    /// One-shot undo guard armed at OUR topology transitions — phantom
+    /// spawn, phantom teardown, lid-open re-pairing. macOS keeps one
+    /// remembered display config per topology ({built-in} solo vs
+    /// {built-in + phantom} pair) and re-applies it wholesale at every such
+    /// transition, including the built-in's stored mode and the mirrored
+    /// flag (root-caused 2026-07-27, WindowServer log — this is the entire
+    /// "resolution yank" family; StayUp's own mirror call never moved the
+    /// built-in). While armed, a built-in mode differing from the reference
+    /// is that stale memory, not a user pick — undo it `.permanently`, which
+    /// rewrites the store for the live topology so both memories converge on
+    /// the user's mode and this guard becomes a permanent no-op. Never armed
+    /// outside our own transitions: the user's picker stays the built-in's
+    /// only other writer.
+    private var topologyUndoGuard: (reference: VirtualDisplay.Mode, event: String, until: Date)?
+    private static let TOPOLOGY_UNDO_WINDOW_SECS: TimeInterval = 8
+    /// Built-in online-list state of the previous reapply pass — detects the
+    /// lid-open (offline→online) re-pairing transition for the guard above.
+    private var builtinWasOnline: Bool?
     /// Which lid-closed mechanism is live: "clamshell-off" (panel genuinely
     /// off) or "backlight-fallback" (panel driven dark). nil lid-open/idle.
     private var lidClosedMode: String?
@@ -358,7 +376,25 @@ class MenuController: NSObject, NSMenuDelegate {
         zzzTimer?.invalidate()
         zzzTimer = nil
         builtinBacklight.apply(dim: false)   // undim the built-in before teardown
+        let hadPhantom = stack.snapshot().virtualDisplay
+        let quitReference = builtinNativeMode
         stack.shutdown()
+        // Quit tears the phantom down with no surviving reapply pass to run
+        // the topology undo guard — macOS re-applies the remembered solo
+        // config within milliseconds of the display leaving. One bounded
+        // synchronous check before exit covers it (the .permanently write
+        // lands in WindowServer, so it outlives this process).
+        if hadPhantom, let want = quitReference, !hasRealExternalDisplay {
+            Thread.sleep(forTimeInterval: 0.8)
+            if let builtin = builtinDisplayID, let cur = builtinNativeMode, cur != want {
+                let ok = DisplayMirror.restoreLogicalModePermanently(
+                    builtin,
+                    pointsWide: want.pointsWide, pointsHigh: want.pointsHigh,
+                    pixelsWide: want.pixelsWide, pixelsHigh: want.pixelsHigh)
+                FileHandle.standardError.write(Data(
+                    "[StayUp] topology-memory undo at quit: built-in \(cur.pointsWide)x\(cur.pointsHigh) -> \(want.pointsWide)x\(want.pointsHigh): \(ok ? "ok" : "FAILED")\n".utf8))
+            }
+        }
         walkDetector.stop()
         powerSource.stop()
         lidMonitor.stop()
@@ -835,11 +871,59 @@ class MenuController: NSObject, NSMenuDelegate {
         // same as a genuine mirror veto. Desktops without a built-in keep the
         // phantom regardless (it's their only surface).
         let suppressPhantom = hasBuiltinDisplayOnline && (mirrorVetoed || lidMonitor.isClosed == nil)
+        // Capture the built-in's mode BEFORE the stack can flip the phantom:
+        // if this apply spawns or drops it, macOS re-applies the remembered
+        // config for the new topology right behind the flip, and this
+        // pre-transition mode is the reference the undo guard restores.
+        let phantomBefore = stack.snapshot().virtualDisplay
+        let modeBefore = builtinNativeMode
         stack.apply(engaged: engaged,
                     keepScreenOn: effectiveKeepScreenOn,
                     hasExternalDisplay: hasRealExternalDisplay,
                     suppressVirtualDisplay: suppressPhantom,
                     virtualDisplayModes: builtinModeTable)
+        if stack.snapshot().virtualDisplay != phantomBefore {
+            armTopologyUndoGuard(reference: modeBefore,
+                                 event: phantomBefore ? "phantom teardown" : "phantom arrival")
+        }
+    }
+
+    /// Arm the undo guard for one of OUR topology transitions and schedule
+    /// follow-up checks. The scheduled checks exist because the settle-
+    /// deferred reapply path only runs while engaged — the teardown
+    /// transition (disengage, veto) needs the guard to fire while idle too.
+    private func armTopologyUndoGuard(reference: VirtualDisplay.Mode?, event: String) {
+        // No reference (built-in offline: closed lid, or a desktop) → nothing
+        // to restore. A real external display in the mix → stand down: its
+        // arrival/removal legitimately re-applies the user's own remembered
+        // config for THAT display set, which must not be undone.
+        guard let reference, !hasRealExternalDisplay else { topologyUndoGuard = nil; return }
+        topologyUndoGuard = (reference, event,
+                             Date().addingTimeInterval(Self.TOPOLOGY_UNDO_WINDOW_SECS))
+        for delay: TimeInterval in [2.5, 6.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.runTopologyUndoGuard()
+            }
+        }
+    }
+
+    /// Compare the built-in against the armed reference and undo a stale
+    /// store-imposed mode. Idempotent; safe to call from any pass. Keeps the
+    /// guard armed until its deadline — the store's application can trail the
+    /// topology event, and a successful undo makes later checks no-ops.
+    private func runTopologyUndoGuard() {
+        guard let g = topologyUndoGuard else { return }
+        if Date() >= g.until || hasRealExternalDisplay { topologyUndoGuard = nil; return }
+        // Built-in offline (mid-clamshell churn): keep armed; a later pass
+        // re-checks once the panel is back.
+        guard let builtin = builtinDisplayID, let cur = builtinNativeMode else { return }
+        guard cur != g.reference else { return }
+        let ok = DisplayMirror.restoreLogicalModePermanently(
+            builtin,
+            pointsWide: g.reference.pointsWide, pointsHigh: g.reference.pointsHigh,
+            pixelsWide: g.reference.pixelsWide, pixelsHigh: g.reference.pixelsHigh)
+        FileHandle.standardError.write(Data(
+            "[StayUp] topology-memory undo after \(g.event): built-in \(cur.pointsWide)x\(cur.pointsHigh) -> \(g.reference.pointsWide)x\(g.reference.pointsHigh): \(ok ? "ok" : "FAILED")\n".utf8))
     }
 
     /// The built-in panel's display ID if it is currently in the ACTIVE display
@@ -1029,8 +1113,24 @@ class MenuController: NSObject, NSMenuDelegate {
         } else {
             lidClosedMode = nil
         }
-        // Keep the pre-close desktop spec fresh while the built-in is online.
-        if let m = builtinNativeMode { lastBuiltinMode = m }
+        // Lid-open returns the built-in into the {built-in, phantom} pair —
+        // macOS re-applies that topology's remembered config on the way in
+        // (the same per-topology store that yanks at spawn/teardown). Arm the
+        // undo guard with the pre-close mode so a stale pair memory gets
+        // undone; a guard already armed by this pass's applyStack wins.
+        if builtinOnline, builtinWasOnline == false, stack.snapshot().virtualDisplay,
+           topologyUndoGuard == nil {
+            armTopologyUndoGuard(reference: lastBuiltinMode, event: "lid-open re-pairing")
+        }
+        builtinWasOnline = builtinOnline
+        runTopologyUndoGuard()
+        // Keep the pre-close desktop spec fresh while the built-in is online —
+        // but never adopt a mode the armed guard still disputes, or the undo
+        // reference would drift onto the store's imposed mode.
+        if let m = builtinNativeMode,
+           topologyUndoGuard == nil || m == topologyUndoGuard!.reference {
+            lastBuiltinMode = m
+        }
         // Standalone phantom defaults to its raw 1x framebuffer mode, doubling
         // the logical desktop and reflowing windows on reopen (HITL
         // 2026-07-27). When clamshell has taken the built-in offline, pin the
