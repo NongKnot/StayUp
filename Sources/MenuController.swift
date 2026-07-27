@@ -1054,6 +1054,13 @@ class MenuController: NSObject, NSMenuDelegate {
     /// STAYUP_NO_MIRROR init (HITL fallback drill) — this guard just reads it.
     private func reconcileMirror() {
         guard active, Settings.virtualDisplayEnabled, !mirrorVetoed, !hasRealExternalDisplay else { return }
+        // Establish the mirror only while the lid is open. Its whole purpose
+        // is to pre-exist the close; attempting it under a closed lid is
+        // pointless (clamshell already missed) and fails in the mid-clamshell
+        // churn, tripping a sticky veto that then blocks the next open→close
+        // cycle from upgrading to clamshell-off (HITL 2026-07-27, item 6).
+        // Lid-open's own reapply establishes it as soon as the panel returns.
+        guard lidMonitor.isClosed != true else { return }
         guard let builtin = builtinDisplayID else { return }   // desktop, or mid-clamshell
         guard let phantom = DisplayMirror.phantomDisplayID() else {
             // The phantom spawned this very apply may not be in the display
@@ -1069,8 +1076,8 @@ class MenuController: NSObject, NSMenuDelegate {
             }
             return
         }
-        mirrorRetries = 0
         if DisplayMirror.isMirrored(phantom) {
+            mirrorRetries = 0
             // macOS auto-restores a session's mirror pair when the phantom
             // respawns, bypassing our establishment path below — record the
             // reference mode here too or the under-mirror change check (and
@@ -1094,10 +1101,22 @@ class MenuController: NSObject, NSMenuDelegate {
         let resolutionHeld = before != nil && after != nil && Self.modesMatch(
             width: before!.pixelWidth, height: before!.pixelHeight, refresh: before!.refreshRate,
             width: after!.pixelWidth, height: after!.pixelHeight, refresh: after!.refreshRate)
-        if !ok || !resolutionHeld {
+        if !ok {
+            // A failed mirror CALL is usually transient topology churn (the
+            // lid-open reshuffle vetoed here twice on 2026-07-27's HITL) —
+            // retry like the phantom-arrival path; veto only at the cap. Only
+            // a held mirror with a changed resolution is a permanent condition.
+            if mirrorRetries < Self.MIRROR_MAX_RETRIES {
+                mirrorRetries += 1
+                scheduleScreenPolicyReapply()
+            } else {
+                vetoMirror(reason: "mirror call kept failing")
+            }
+        } else if !resolutionHeld {
             _ = DisplayMirror.unmirror(phantom)
-            vetoMirror(reason: ok ? "mirroring changed the built-in's resolution" : "mirror call failed")
+            vetoMirror(reason: "mirroring changed the built-in's resolution")
         } else if let before {
+            mirrorRetries = 0
             // Hold the pre-mirror mode and schedule one follow-up verify pass
             // (settle-deferred) to catch a downgrade that shows up after this
             // immediate check already passed — the delayed-downgrade hole.
