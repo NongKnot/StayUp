@@ -32,17 +32,11 @@ class MenuController: NSObject, NSMenuDelegate {
     private var mirrorVetoed = false
     private var mirrorRetries = 0
     private static let MIRROR_MAX_RETRIES = 5
-    /// Built-in's mode at the moment mirroring last succeeded, or nil when not
-    /// mirrored. Lets `reconcileMirror` catch a delayed downgrade — the built-in
-    /// changing mode sometime *after* the immediate post-mirror verify passed —
-    /// on the settle-deferred follow-up pass it schedules for itself.
-    private var mirroredBuiltinMode: VirtualDisplay.Mode?
-    /// The built-in's mode as last seen while it was online — refreshed every
-    /// screen-policy pass. The clamshell-off pin reads this, NOT
-    /// `mirroredBuiltinMode`: a macOS-auto-restored mirror bypasses the
-    /// establishment path, so mirror-time capture alone can be empty
-    /// (HITL 2026-07-27 — the pin silently skipped and the closed-lid desktop
-    /// doubled). Cleared on disengage.
+    /// The built-in's CURRENT mode as last seen while it was online —
+    /// refreshed every screen-policy pass (a mirror-time-only capture proved
+    /// unreliable: macOS auto-restores mirrors, bypassing the establishment
+    /// path — HITL 2026-07-27). The clamshell-off pin reads this. Cleared on
+    /// disengage.
     private var lastBuiltinMode: VirtualDisplay.Mode?
     /// Which lid-closed mechanism is live: "clamshell-off" (panel genuinely
     /// off) or "backlight-fallback" (panel driven dark). nil lid-open/idle.
@@ -755,7 +749,6 @@ class MenuController: NSObject, NSMenuDelegate {
         // (single definition point — reconcileMirror no longer re-checks this).
         mirrorVetoed = ProcessInfo.processInfo.environment["STAYUP_NO_MIRROR"] != nil
         mirrorRetries = 0
-        mirroredBuiltinMode = nil
         applyStack(engaged: true)
         active = true
         Settings.wasActive = (reason == .manual)
@@ -803,7 +796,6 @@ class MenuController: NSObject, NSMenuDelegate {
         Settings.wasActive = false
         builtinBacklight.apply(dim: false)   // undim the built-in before the stack drops
         lidClosedMode = nil
-        mirroredBuiltinMode = nil
         lastBuiltinMode = nil
         applyStack(engaged: false)
         stopBatteryMonitor()
@@ -847,7 +839,7 @@ class MenuController: NSObject, NSMenuDelegate {
                     keepScreenOn: effectiveKeepScreenOn,
                     hasExternalDisplay: hasRealExternalDisplay,
                     suppressVirtualDisplay: suppressPhantom,
-                    virtualDisplayMode: builtinNativeMode)
+                    virtualDisplayModes: builtinModeTable)
     }
 
     /// The built-in panel's display ID if it is currently in the ACTIVE display
@@ -872,6 +864,33 @@ class MenuController: NSObject, NSMenuDelegate {
         return VirtualDisplay.Mode(pixelsWide: m.pixelWidth, pixelsHigh: m.pixelHeight,
                                    pointsWide: m.width, pointsHigh: m.height,
                                    refreshRate: m.refreshRate > 0 ? m.refreshRate : 60)
+    }
+
+    /// The built-in's full usable mode TABLE as a phantom spec — a constant
+    /// hardware property, so the phantom advertising it never needs a respawn
+    /// to follow the user's resolution picks (the single-mode chase produced
+    /// respawn churn, sticky vetoes, and a settings revert loop — HITL
+    /// 2026-07-27). Deduped by logical size + refresh (the 1x/2x variants of
+    /// one logical size collapse to one advertised mode; hiDPI handles the
+    /// rest), keeping the largest framebuffer per entry. nil when no built-in
+    /// is active. Sorted for stable Equatable comparison in the executor.
+    private var builtinModeTable: [VirtualDisplay.Mode]? {
+        guard let id = builtinDisplayID else { return nil }
+        let opts = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        guard let all = CGDisplayCopyAllDisplayModes(id, opts) as? [CGDisplayMode] else { return nil }
+        var best: [String: VirtualDisplay.Mode] = [:]
+        for m in all where m.isUsableForDesktopGUI() {
+            let hz = m.refreshRate > 0 ? m.refreshRate : 60
+            let key = "\(m.width)x\(m.height)@\(Int(hz))"
+            if let seen = best[key], seen.pixelsWide >= m.pixelWidth { continue }
+            best[key] = VirtualDisplay.Mode(pixelsWide: m.pixelWidth, pixelsHigh: m.pixelHeight,
+                                            pointsWide: m.width, pointsHigh: m.height,
+                                            refreshRate: hz)
+        }
+        guard !best.isEmpty else { return nil }
+        return best.values.sorted {
+            ($0.pointsWide, $0.pointsHigh, $0.refreshRate) < ($1.pointsWide, $1.pointsHigh, $1.refreshRate)
+        }
     }
 
     private func playClick() {
@@ -1018,7 +1037,7 @@ class MenuController: NSObject, NSMenuDelegate {
         // phantom to the 2x mode whose logical size matches the pre-close
         // desktop. The set fires a displays-changed event whose reapply finds
         // the mode already correct — no loop.
-        if lidClosedMode == "clamshell-off", let want = lastBuiltinMode ?? mirroredBuiltinMode,
+        if lidClosedMode == "clamshell-off", let want = lastBuiltinMode,
            let phantom = DisplayMirror.phantomDisplayID() {
             let pinned = DisplayMirror.setLogicalMode(phantom,
                                                       pointsWide: want.pointsWide, pointsHigh: want.pointsHigh,
@@ -1078,21 +1097,14 @@ class MenuController: NSObject, NSMenuDelegate {
         }
         if DisplayMirror.isMirrored(phantom) {
             mirrorRetries = 0
-            // macOS auto-restores a session's mirror pair when the phantom
-            // respawns, bypassing our establishment path below — record the
-            // reference mode here too or the under-mirror change check (and
-            // anything else keyed on it) is silently unarmed (HITL 2026-07-27).
-            if mirroredBuiltinMode == nil { mirroredBuiltinMode = builtinNativeMode }
-            // Already converged — but a delayed downgrade (built-in mode
-            // changed sometime after the immediate post-mirror verify below
-            // passed) must not silently stand. Re-read the built-in's current
-            // mode against the one captured at mirror time.
-            if let target = mirroredBuiltinMode, let current = CGDisplayCopyDisplayMode(builtin),
-               !Self.modesMatch(width: current.pixelWidth, height: current.pixelHeight, refresh: current.refreshRate,
-                                width: target.pixelsWide, height: target.pixelsHigh, refresh: target.refreshRate) {
-                _ = DisplayMirror.unmirror(phantom)
-                vetoMirror(reason: "built-in mode changed under mirror")
-            }
+            // Converged. NO mode-change policing here: the phantom advertises
+            // the built-in's whole mode table, so a user's resolution pick is
+            // just the mirror renegotiating onto a mode both sides already
+            // offer — nothing to chase, nothing to veto. (A single-mode
+            // phantom chased the current mode with respawns; the respawn
+            // churn produced sticky vetoes and a revert loop that overrode
+            // the user's choice every ~3s — HITL 2026-07-27.) The immediate
+            // before/after verify below still guards establishment.
             return
         }
         let before = CGDisplayCopyDisplayMode(builtin)
@@ -1115,15 +1127,8 @@ class MenuController: NSObject, NSMenuDelegate {
         } else if !resolutionHeld {
             _ = DisplayMirror.unmirror(phantom)
             vetoMirror(reason: "mirroring changed the built-in's resolution")
-        } else if let before {
+        } else {
             mirrorRetries = 0
-            // Hold the pre-mirror mode and schedule one follow-up verify pass
-            // (settle-deferred) to catch a downgrade that shows up after this
-            // immediate check already passed — the delayed-downgrade hole.
-            mirroredBuiltinMode = VirtualDisplay.Mode(pixelsWide: before.pixelWidth, pixelsHigh: before.pixelHeight,
-                                                      pointsWide: before.width, pointsHigh: before.height,
-                                                      refreshRate: before.refreshRate > 0 ? before.refreshRate : 60)
-            scheduleScreenPolicyReapply()
         }
     }
 
@@ -1131,7 +1136,6 @@ class MenuController: NSObject, NSMenuDelegate {
     /// planner drops the phantom and the laptop runs the shipped 1.3.6 shape.
     private func vetoMirror(reason: String) {
         mirrorVetoed = true
-        mirroredBuiltinMode = nil
         FileHandle.standardError.write(Data(
             "[StayUp] DisplayMirror: vetoed — \(reason); falling back to backlight-0\n".utf8))
         applyStack(engaged: true)   // planner sees the veto and drops the phantom

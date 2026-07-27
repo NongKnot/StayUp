@@ -43,14 +43,18 @@ class VirtualDisplay {
     private(set) var isActive = false
     private var display: CGVirtualDisplay?
 
-    func enable(mode: Mode? = nil) {
+    func enable(modes: [Mode]? = nil) {
         guard !isActive else { return }
 
-        let pxW = mode?.pixelsWide ?? 1920
-        let pxH = mode?.pixelsHigh ?? 1080
-        let ptW = mode?.pointsWide ?? 1920
-        let ptH = mode?.pointsHigh ?? 1080
-        let hz  = mode?.refreshRate ?? 60
+        // Advertise the caller's full mode table (a laptop built-in's usable
+        // list — constant hardware property, so the phantom never needs a
+        // respawn to follow a user's resolution pick). nil = the historic
+        // single-mode 1920×1080 desktop default. maxPixels must cover the
+        // largest advertised framebuffer.
+        let table = (modes?.isEmpty == false) ? modes!
+            : [Mode(pixelsWide: 1920, pixelsHigh: 1080, pointsWide: 1920, pointsHigh: 1080, refreshRate: 60)]
+        let pxW = table.map(\.pixelsWide).max()!
+        let pxH = table.map(\.pixelsHigh).max()!
 
         guard let descriptor = CGVirtualDisplayDescriptor() else { return }
         descriptor.queue = DispatchQueue.global(qos: .userInteractive)
@@ -85,11 +89,12 @@ class VirtualDisplay {
 
         guard let settings = CGVirtualDisplaySettings() else { return }
         settings.hiDPI = 1
-        // Mode in POINTS, maxPixels in pixels: a Retina spec (points < pixels)
-        // yields a proper 2x mode; the desktop default (points == pixels) is
-        // the historic 1x config unchanged.
-        if let vdMode = CGVirtualDisplayMode(width: UInt32(ptW), height: UInt32(ptH), refreshRate: hz) {
-            settings.modes = [vdMode]
+        // Modes in POINTS, maxPixels in pixels: a Retina spec (points <
+        // pixels) yields a proper 2x mode; the desktop default (points ==
+        // pixels) is the historic 1x config unchanged.
+        settings.modes = table.compactMap {
+            CGVirtualDisplayMode(width: UInt32($0.pointsWide), height: UInt32($0.pointsHigh),
+                                 refreshRate: $0.refreshRate)
         }
 
         if display.applySettings(settings) {

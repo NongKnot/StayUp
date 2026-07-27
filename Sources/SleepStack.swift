@@ -26,9 +26,17 @@ final class SleepStack {
     /// Last applied state — the planner diffs against it. Also the engaged truth.
     private var last: SleepPlanner.Desired?
 
-    /// Mode the phantom was last enabled with. Executor detail, not planner
-    /// state: a mode change respawns the layer (the planner can't see modes).
-    private var virtualDisplayMode: VirtualDisplay.Mode?
+    /// Mode TABLE the phantom advertises. Executor detail, not planner state.
+    /// A panel's usable-mode list is a constant hardware property, so this
+    /// changes at most once per engage (nil default → real table when a
+    /// built-in first comes online, e.g. after an engage-under-closed-lid).
+    /// The phantom is deliberately NEVER respawned on a current-mode change —
+    /// chasing the built-in's mode-of-the-moment respawned the display on
+    /// every user resolution pick, and each respawn raced macOS's async
+    /// teardown + session mirror memory (HITL 2026-07-27: sticky vetoes, a
+    /// black flash, and a revert loop that overrode the user's choice
+    /// every ~3s). The full table means there is never anything to chase.
+    private var virtualDisplayModes: [VirtualDisplay.Mode]?
 
     var isEngaged: Bool { last?.engaged ?? false }
 
@@ -37,23 +45,25 @@ final class SleepStack {
     /// flip are all just this. No-ops cleanly when nothing changed. `Desired`
     /// stays an internal detail — callers pass the four facts directly.
     func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool,
-               suppressVirtualDisplay: Bool, virtualDisplayMode mode: VirtualDisplay.Mode?) {
+               suppressVirtualDisplay: Bool, virtualDisplayModes modes: [VirtualDisplay.Mode]?) {
         let desired = SleepPlanner.Desired(
             engaged: engaged, keepScreenOn: keepScreenOn,
             hasExternalDisplay: hasExternalDisplay, suppressVirtualDisplay: suppressVirtualDisplay)
-        // A live phantom whose target mode genuinely changed (user changed the
-        // built-in's resolution mid-mirror) must respawn at the new mode. nil
-        // is "no opinion" (built-in offline mid-clamshell), never a downgrade.
-        if virtualDisplay.isActive, let mode, mode != virtualDisplayMode {
+        // The table upgrade (default → the built-in's real table, at most once
+        // per engage — see `virtualDisplayModes`) is the ONLY reason a live
+        // phantom respawns outside the planner. nil is "no opinion" (built-in
+        // offline mid-clamshell), never a reset.
+        if virtualDisplay.isActive, let modes, modes != virtualDisplayModes {
             virtualDisplay.disable()
         }
-        virtualDisplayMode = mode ?? virtualDisplayMode
+        virtualDisplayModes = modes ?? virtualDisplayModes
         for action in SleepPlanner.plan(from: last, to: desired) { execute(action) }
-        // The planner diffs on/off, so a respawn after the mode-change disable
-        // needs an explicit re-enable when the plan (rightly) saw no change.
+        // The planner diffs on/off, so a respawn after the table-upgrade
+        // disable needs an explicit re-enable when the plan (rightly) saw no
+        // change.
         if desired.engaged, desired.keepScreenOn, !desired.hasExternalDisplay,
            !desired.suppressVirtualDisplay, !virtualDisplay.isActive {
-            virtualDisplay.enable(mode: virtualDisplayMode)
+            virtualDisplay.enable(modes: virtualDisplayModes)
         }
         last = desired
     }
@@ -97,7 +107,7 @@ final class SleepStack {
         case .caffeinate:     caffeinate.enable(preventDisplaySleep: pds)
         case .sleepPreventer: sleepPreventer.enable(preventDisplaySleep: pds)
         case .closedLid:      _ = closedLidPreventer.enable()
-        case .virtualDisplay: virtualDisplay.enable(mode: virtualDisplayMode)
+        case .virtualDisplay: virtualDisplay.enable(modes: virtualDisplayModes)
         case .helper:         StayUpHelper.shared.enable()
         }
     }
