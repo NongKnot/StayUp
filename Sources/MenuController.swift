@@ -53,6 +53,12 @@ class MenuController: NSObject, NSMenuDelegate {
     /// the built-in's ONLY writer.
     private var topologyYankWatch: (reference: VirtualDisplay.Mode, event: String, until: Date)?
     private static let TOPOLOGY_YANK_WINDOW_SECS: TimeInterval = 8
+    /// Last (from, to) pair the user was notified about. Until the store
+    /// converges, every Auto-mode engage/disengage cycle re-applies the same
+    /// stale memory — one banner carries the information, repeats are spam.
+    /// Per-run on purpose: a relaunch is a fresh reminder. stderr still logs
+    /// every yank; only the banner dedupes.
+    private var lastNotifiedYank: (VirtualDisplay.Mode, VirtualDisplay.Mode)?
     /// Built-in online-list state of the previous reapply pass — detects the
     /// lid-open (offline→online) re-pairing transition for the watch above.
     private var builtinWasOnline: Bool?
@@ -961,6 +967,8 @@ class MenuController: NSObject, NSMenuDelegate {
     /// (operator decision 2026-07-27) — tell the user instead of writing.
     private func notifyResolutionYank(from: VirtualDisplay.Mode, to: VirtualDisplay.Mode) {
         if Self.isTestMode { return }
+        if let last = lastNotifiedYank, last == (from, to) { return }
+        lastNotifiedYank = (from, to)
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
