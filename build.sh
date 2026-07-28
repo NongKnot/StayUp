@@ -106,7 +106,6 @@ cp tools/stayup.sh "${BUNDLE}/Contents/Resources/"
 chmod +x "${BUNDLE}/Contents/Resources/stayup.sh"
 
 echo "Building helper daemon..."
-mkdir -p "${BUNDLE}/Contents/MacOS"
 swiftc -target "$TARGET" Helper/main.swift \
     -framework Foundation \
     -o "${BUNDLE}/Contents/MacOS/app.getstayup.helper"

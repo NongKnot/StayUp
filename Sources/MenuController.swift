@@ -54,7 +54,7 @@ class MenuController: NSObject, NSMenuDelegate {
     private var topologyYankWatch: (reference: VirtualDisplay.Mode, event: String, until: Date)?
     private static let TOPOLOGY_YANK_WINDOW_SECS: TimeInterval = 8
     /// Built-in online-list state of the previous reapply pass — detects the
-    /// lid-open (offline→online) re-pairing transition for the guard above.
+    /// lid-open (offline→online) re-pairing transition for the watch above.
     private var builtinWasOnline: Bool?
     /// Which lid-closed mechanism is live: "clamshell-off" (panel genuinely
     /// off) or "backlight-fallback" (panel driven dark). nil lid-open/idle.
@@ -705,10 +705,7 @@ class MenuController: NSObject, NSMenuDelegate {
     }
 
     /// The one user-facing control. `index` maps to the Settings segmented control.
-    enum Mode: Int { case off = 0, on = 1, auto = 2
-        init(index: Int) { self = Mode(rawValue: index) ?? .off }
-        var index: Int { rawValue }
-    }
+    enum Mode: Int { case off = 0, on = 1, auto = 2 }
 
     /// Derived from live state. In Auto+idle this is `.auto` even though the
     /// stack is down (the icon shows the real engagement; this is the intent).
@@ -1470,8 +1467,8 @@ class MenuController: NSObject, NSMenuDelegate {
                 self.updateUI()
             }
             s.openWelcome = { [weak self] in self?.showWelcome() }
-            s.setMode = { [weak self] idx in self?.setMode(Mode(index: idx)) }
-            s.currentModeIndex = { [weak self] in self?.currentMode.index ?? 0 }
+            s.setMode = { [weak self] idx in self?.setMode(Mode(rawValue: idx) ?? .off) }
+            s.currentModeIndex = { [weak self] in self?.currentMode.rawValue ?? 0 }
             settings = s
         }
         settings?.show()

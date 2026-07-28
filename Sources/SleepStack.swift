@@ -47,7 +47,6 @@ final class SleepStack {
     /// Returns true when the table upgrade cycled a live phantom (a real
     /// teardown+arrival topology transition the before/after snapshot diff
     /// cannot see — the caller's yank watch needs to know).
-    @discardableResult
     func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool,
                suppressVirtualDisplay: Bool, virtualDisplayModes modes: [VirtualDisplay.Mode]?) -> Bool {
         let desired = SleepPlanner.Desired(

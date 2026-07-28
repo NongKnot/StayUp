@@ -177,10 +177,6 @@ enum Settings {
         }
     }
 
-    static func isPackUnlocked(_ packId: String) -> Bool {
-        unlockedPackIds.contains(packId)
-    }
-
     /// First-launch onboarding completed. Set to true the first time the
     /// `WelcomeWindow` closes (either via "Let's go" or the window's close
     /// button) so the welcome doesn't reappear on every launch. Default

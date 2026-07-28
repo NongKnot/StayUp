@@ -168,11 +168,8 @@ enum ActivitySourceHookInstaller {
         }
     }
 
-    static func disableSource(named sourceKey: String, folderSlug: String) throws {
-        try disableSource(named: sourceKey, folderSlug: folderSlug, scriptDest: scriptDestURL)
-    }
-
-    static func disableSource(named sourceKey: String, folderSlug: String, scriptDest: URL) throws {
+    static func disableSource(named sourceKey: String, folderSlug: String,
+                              scriptDest: URL = ActivitySourceHookInstaller.scriptDestURL) throws {
         if let s = reportedSource(named: sourceKey) {
             try deployNoopWrapper(named: wrapperName(for: s.slug), scriptDest: scriptDest)
             try deployLegacyNoopWrapperIfNeeded(for: s, scriptDest: scriptDest)
@@ -329,21 +326,14 @@ enum ActivitySourceHookInstaller {
     static func purgeLegacyAgentHooks(settings: URL) throws -> Bool {
         var root = try readSettings(at: settings)
         guard var hooks = root["hooks"] as? [String: Any] else { return false }
+        func itemCount(_ groups: [[String: Any]]) -> Int {
+            groups.reduce(0) { $0 + (($1["hooks"] as? [[String: Any]])?.count ?? 0) }
+        }
         var changed = false
         for (event, value) in hooks {
             guard let groups = value as? [[String: Any]] else { continue }
-            let kept = groups.compactMap { group -> [String: Any]? in
-                guard let hookItems = group["hooks"] as? [[String: Any]] else { return group }
-                let keptItems = hookItems.filter {
-                    guard let command = $0["command"] as? String else { return true }
-                    return !command.contains(legacyAgentMarker)
-                }
-                if keptItems.count != hookItems.count { changed = true }
-                if keptItems.isEmpty { return nil }
-                var keptGroup = group
-                keptGroup["hooks"] = keptItems
-                return keptGroup
-            }
+            let kept = removingOurHooks(from: groups, marker: legacyAgentMarker)
+            if itemCount(kept) != itemCount(groups) { changed = true }
             if kept.isEmpty { hooks.removeValue(forKey: event) } else { hooks[event] = kept }
         }
         guard changed else { return false }
@@ -595,7 +585,8 @@ enum ActivitySourceHookInstaller {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
-    private static func removingOurHooks(from groups: [[String: Any]]) -> [[String: Any]] {
+    private static func removingOurHooks(from groups: [[String: Any]],
+                                         marker: String = ActivitySourceHookInstaller.marker) -> [[String: Any]] {
         groups.compactMap { group in
             guard let hookItems = group["hooks"] as? [[String: Any]] else { return group }
             let keptHookItems = hookItems.filter {

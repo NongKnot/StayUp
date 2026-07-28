@@ -31,7 +31,6 @@ enum HookAdapter: Equatable {
     /// per-source wrapper (OpenCode: `~/.config/opencode/plugins/stayup.js`).
     case ownPlugin
 
-    var isMerge: Bool { self == .mergeGrouped || self == .mergeFlat }
 }
 
 /// Observed-source recipe fields (only the v1 contract types are legal).

@@ -25,7 +25,6 @@ import Foundation
 final class ExternalSourceWatcher {
 
     private static let bundledReportedSourceNames = Set(BundledSources.reported.map(\.key))
-    private static let bundledObservedSourceNames = Set(BundledSources.observed.map(\.key))
     private static let bundledSourceNames = Set(BundledSources.all.map(\.key))
 
     struct ConfiguredSourceInfo {
@@ -57,7 +56,6 @@ final class ExternalSourceWatcher {
 
     // Canonical paths live with the reader/scaffolder; these forwards keep the
     // watcher's many call sites (and tests) stable.
-    static var stayUpFolderURL: URL { SourceProvisioner.stayUpFolderURL }
     static var sourcesFolderURL: URL { SourceCatalog.defaultDirectory }
 
     func start() {
@@ -203,15 +201,7 @@ final class ExternalSourceWatcher {
     /// Any process whose command contains `match` with %cpu ≥ minCpu.
     private func processBusy(_ s: Source) -> Bool {
         guard let needle = s.match?.lowercased(), !needle.isEmpty else { return false }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/ps")
-        p.arguments = ["-axo", "%cpu=,command="]
-        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
-        guard (try? p.run()) != nil else { return false }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        for line in String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+        for trimmed in psLines(fields: "%cpu=,command=") {
             guard let sp = trimmed.firstIndex(of: " ") else { continue }
             let cpu = Double(String(trimmed[..<sp])) ?? 0
             let cmd = trimmed[trimmed.index(after: sp)...].lowercased()
@@ -242,22 +232,26 @@ final class ExternalSourceWatcher {
     }
 
     private func matchingProcessIDs(containing needle: String) -> [Int32] {
+        psLines(fields: "pid=,command=")
+            .compactMap { trimmed in
+                guard let sp = trimmed.firstIndex(of: " ") else { return nil }
+                let pid = Int32(String(trimmed[..<sp]))
+                let cmd = trimmed[trimmed.index(after: sp)...].lowercased()
+                return cmd.contains(needle) ? pid : nil
+            }
+    }
+
+    private func psLines(fields: String) -> [String] {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/ps")
-        p.arguments = ["-axo", "pid=,command="]
+        p.arguments = ["-axo", fields]
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
         guard (try? p.run()) != nil else { return [] }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         return String(decoding: data, as: UTF8.self)
             .split(whereSeparator: \.isNewline)
-            .compactMap { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard let sp = trimmed.firstIndex(of: " ") else { return nil }
-                let pid = Int32(String(trimmed[..<sp]))
-                let cmd = trimmed[trimmed.index(after: sp)...].lowercased()
-                return cmd.contains(needle) ? pid : nil
-            }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     private func splitPattern(_ raw: String) -> [String] {
@@ -437,24 +431,20 @@ final class ExternalSourceWatcher {
 
     static func slug(for name: String, displayName: String? = nil) -> String {
         if let bundled = BundledSources.source(named: name) { return bundled.slug }
-        switch name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        default:
-            let raw = (displayName?.isEmpty == false ? displayName! : name).lowercased()
-            var out = ""
-            var lastDash = false
-            for scalar in raw.unicodeScalars {
-                if CharacterSet.alphanumerics.contains(scalar) {
-                    out.append(Character(scalar))
-                    lastDash = false
-                } else if !lastDash {
-                    out.append("-")
-                    lastDash = true
-                }
+        let raw = (displayName?.isEmpty == false ? displayName! : name).lowercased()
+        var out = ""
+        var lastDash = false
+        for scalar in raw.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                out.append(Character(scalar))
+                lastDash = false
+            } else if !lastDash {
+                out.append("-")
+                lastDash = true
             }
-            return out.trimmingCharacters(in: CharacterSet(charactersIn: "-")).isEmpty
-                ? "source"
-                : out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         }
+        let trimmed = out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? "source" : trimmed
     }
 
     /// All on-disk records via `SourceCatalog`, minus retired alias folders

@@ -48,12 +48,18 @@ final class PowerSourceMonitor {
         }
     }
 
+    /// Description dictionaries for all current power sources; empty on failure.
+    private func sourceDescriptions() -> [[String: Any]] {
+        guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else { return [] }
+        guard let sources  = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] else { return [] }
+        return sources.compactMap { src in
+            IOPSGetPowerSourceDescription(snapshot, src)?.takeUnretainedValue() as? [String: Any]
+        }
+    }
+
     /// Current power source. Re-detects on each call.
     func detect() -> Source {
-        guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else { return .unknown }
-        guard let sources  = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] else { return .unknown }
-        for src in sources {
-            guard let info = IOPSGetPowerSourceDescription(snapshot, src)?.takeUnretainedValue() as? [String: Any] else { continue }
+        for info in sourceDescriptions() {
             if let state = info[kIOPSPowerSourceStateKey as String] as? String {
                 return state == kIOPSACPowerValue ? .ac : .battery
             }
@@ -63,10 +69,7 @@ final class PowerSourceMonitor {
 
     /// Battery charge 0–100, nil if no battery (rare on a MacBook).
     func batteryPercent() -> Int? {
-        guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else { return nil }
-        guard let sources  = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
-        for src in sources {
-            guard let info = IOPSGetPowerSourceDescription(snapshot, src)?.takeUnretainedValue() as? [String: Any] else { continue }
+        for info in sourceDescriptions() {
             if let cap = info[kIOPSCurrentCapacityKey as String] as? Int,
                let max = info[kIOPSMaxCapacityKey     as String] as? Int, max > 0 {
                 return Int((Double(cap) / Double(max)) * 100)

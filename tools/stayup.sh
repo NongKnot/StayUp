@@ -49,13 +49,8 @@ import json, os, sys, time
 ONCE = (len(sys.argv) > 1 and sys.argv[1] == "once")
 STATUS = os.path.expanduser("~/.stayup/status.json")
 SOURCE_LABELS = {
-    "Claude": "Claude",
     "Claude Code CLI": "Claude",
-    "Codex": "Codex",
     "Codex CLI": "Codex",
-    "Cursor": "Cursor",
-    "Ollama": "Ollama",
-    "LM Studio": "LM Studio",
 }
 
 def source_label(name):

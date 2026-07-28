@@ -96,9 +96,8 @@ final class SparkleUpdater {
     }
 
     /// Mirrors the user's auto-check preference. Wired to the Settings
-    /// checkbox; reading reflects the current state, writing flips it.
+    /// checkbox; reading reflects the current state.
     var automaticChecksEnabled: Bool {
-        get { controller.updater.automaticallyChecksForUpdates }
-        set { controller.updater.automaticallyChecksForUpdates = newValue }
+        controller.updater.automaticallyChecksForUpdates
     }
 }

@@ -20,7 +20,7 @@ import IOKit.hid
 ///      are signed Int32 little-endian at offsets 6/10/14, scaled by 2^16
 ///      to give Gs.
 ///
-/// Native rate is ~100 Hz; we downsample to ~14 Hz (every 7th sample).
+/// Native rate is ~100 Hz; the kernel delivers ~14 Hz via `ReportInterval`.
 final class WalkDetector {
 
     // MARK: - Public
@@ -66,9 +66,8 @@ final class WalkDetector {
     private let gapTolerance:     TimeInterval = 0.8
 
     /// We tell the kernel to deliver reports at ~14 Hz directly (via
-    /// `ReportInterval = 70000µs`) so no software downsampling is needed.
-    /// `sampleEvery` stays at 1 — every report is processed.
-    private let sampleEvery       = 1
+    /// `ReportInterval = 70000µs`) so no software downsampling is needed —
+    /// every report is processed.
     private let emaAlpha: Double  = 0.25
 
     // MARK: - Hardware constants (Apple SPU accelerometer)
@@ -87,7 +86,6 @@ final class WalkDetector {
     /// relocated by ARC, so `&array` isn't safe to hold across async calls.
     private let reportBufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: WalkDetector.kReportLen)
 
-    private var sampleCount = 0
     private var prevX: Double = 0, prevY: Double = 0, prevZ: Double = 0
     private var hasFirst = false
     private var deltaEMA: Double = 0
@@ -255,10 +253,6 @@ final class WalkDetector {
 
     private func handleReport(_ report: UnsafePointer<UInt8>, length: Int) {
         guard length >= Self.kDataOffset + 12 else { return }
-
-        // Downsample 100 Hz → ~14 Hz
-        sampleCount += 1
-        guard sampleCount % sampleEvery == 0 else { return }
 
         func readI32(at offset: Int) -> Double {
             let raw = Int32(bitPattern:

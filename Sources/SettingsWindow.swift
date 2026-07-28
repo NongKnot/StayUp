@@ -258,13 +258,6 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         stack.addArrangedSubview(dontDieCheck)
 
         // Inline sub-row: "Nap at: ▾ 10%"
-        let dontDieRow = NSStackView()
-        dontDieRow.orientation = .horizontal
-        dontDieRow.spacing     = 8
-        dontDieRow.alignment   = .centerY
-        let dontDieLabel = NSTextField(labelWithString: "Nap at:")
-        dontDieLabel.font = NSFont.systemFont(ofSize: 11)
-        dontDieLabel.textColor = .secondaryLabelColor
         dontDiePopup = NSPopUpButton()
         dontDiePopup.target = self
         dontDiePopup.action = #selector(dontDiePopupChanged)
@@ -273,21 +266,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             item.tag = pct
             dontDiePopup.menu?.addItem(item)
         }
-        dontDieRow.addArrangedSubview(dontDieLabel)
-        dontDieRow.addArrangedSubview(dontDiePopup)
-
-        let ddIndent = NSView()
-        ddIndent.translatesAutoresizingMaskIntoConstraints = false
-        ddIndent.addSubview(dontDieRow)
-        dontDieRow.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            dontDieRow.leadingAnchor.constraint(equalTo: ddIndent.leadingAnchor, constant: 20),
-            dontDieRow.trailingAnchor.constraint(lessThanOrEqualTo: ddIndent.trailingAnchor),
-            dontDieRow.topAnchor.constraint(equalTo: ddIndent.topAnchor),
-            dontDieRow.bottomAnchor.constraint(equalTo: ddIndent.bottomAnchor),
-        ])
-        stack.addArrangedSubview(ddIndent)
-        ddIndent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        addIndentedPopupRow(label: "Nap at:", popup: dontDiePopup, in: stack)
         addDesc("Duck naps before the battery dies.", in: stack)
 
         // Helper — the one layer that truly survives battery + lid-closed on
@@ -329,13 +308,6 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         sourceSummary.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
         // Inline sub-row: "Nap after: ▾ 5 min"
-        let graceRow = NSStackView()
-        graceRow.orientation = .horizontal
-        graceRow.spacing     = 8
-        graceRow.alignment   = .centerY
-        let graceLabel = NSTextField(labelWithString: "Nap after:")
-        graceLabel.font = NSFont.systemFont(ofSize: 11)
-        graceLabel.textColor = .secondaryLabelColor
         autoGracePopup = NSPopUpButton()
         autoGracePopup.target = self
         autoGracePopup.action = #selector(autoGraceChanged)
@@ -344,21 +316,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
             item.tag = secs
             autoGracePopup.menu?.addItem(item)
         }
-        graceRow.addArrangedSubview(graceLabel)
-        graceRow.addArrangedSubview(autoGracePopup)
-
-        let graceIndent = NSView()
-        graceIndent.translatesAutoresizingMaskIntoConstraints = false
-        graceIndent.addSubview(graceRow)
-        graceRow.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            graceRow.leadingAnchor.constraint(equalTo: graceIndent.leadingAnchor, constant: 20),
-            graceRow.trailingAnchor.constraint(lessThanOrEqualTo: graceIndent.trailingAnchor),
-            graceRow.topAnchor.constraint(equalTo: graceIndent.topAnchor),
-            graceRow.bottomAnchor.constraint(equalTo: graceIndent.bottomAnchor),
-        ])
-        stack.addArrangedSubview(graceIndent)
-        graceIndent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        addIndentedPopupRow(label: "Nap after:", popup: autoGracePopup, in: stack)
         addDesc("Duck waits this long after work stops before napping.", in: stack)
 
         // Which sources to trust — a scrollable list that scales as users add
@@ -800,19 +758,34 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         stack.addArrangedSubview(gap)
     }
 
+    /// Indented "label: ▾ popup" sub-row beneath a checkbox or summary line.
+    private func addIndentedPopupRow(label: String, popup: NSPopUpButton, in stack: NSStackView) {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing     = 8
+        row.alignment   = .centerY
+        let rowLabel = NSTextField(labelWithString: label)
+        rowLabel.font = NSFont.systemFont(ofSize: 11)
+        rowLabel.textColor = .secondaryLabelColor
+        row.addArrangedSubview(rowLabel)
+        row.addArrangedSubview(popup)
+
+        let indent = NSView()
+        indent.translatesAutoresizingMaskIntoConstraints = false
+        indent.addSubview(row)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: indent.leadingAnchor, constant: 20),
+            row.trailingAnchor.constraint(lessThanOrEqualTo: indent.trailingAnchor),
+            row.topAnchor.constraint(equalTo: indent.topAnchor),
+            row.bottomAnchor.constraint(equalTo: indent.bottomAnchor),
+        ])
+        stack.addArrangedSubview(indent)
+        indent.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    }
+
     /// Top-left origin so a scroll view's content fills from the top, not bottom.
     private final class FlippedView: NSView { override var isFlipped: Bool { true } }
-
-    /// A full-width hairline that visually separates sections within a tab.
-    private func addSeparator(in stack: NSStackView) {
-        addGap(in: stack, height: 10)
-        let line = NSBox()
-        line.boxType = .separator
-        line.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(line)
-        line.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        addGap(in: stack, height: 10)
-    }
 
     /// Renders a small swatch for the skin picker popup. Filled rounded
     /// rect using the skin's body + outline colors. Mono is a special-case
