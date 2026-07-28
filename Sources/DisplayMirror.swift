@@ -62,22 +62,14 @@ enum DisplayMirror {
         return CGDisplaySetDisplayMode(id, target, nil) == .success
     }
 
-    /// Same mode lookup as `setLogicalMode`, applied through a config
-    /// transaction completed `.permanently` — which also rewrites macOS's
-    /// stored config for the LIVE topology. Used ONLY to undo a stale mode
-    /// the per-topology display memory re-imposed at our own phantom's
-    /// arrival/teardown/lid-open (see MenuController's topologyUndoGuard):
-    /// after one undo the store agrees with the user's mode, so the next
-    /// transition has nothing stale to impose. A plain CGDisplaySetDisplayMode
-    /// cannot do this job — it neither rewrites the store nor survives the
-    /// setting process exiting (both on-tape, 2026-07-27).
-    static func restoreLogicalModePermanently(_ id: CGDirectDisplayID,
-                                              pointsWide: Int, pointsHigh: Int,
-                                              pixelsWide: Int, pixelsHigh: Int) -> Bool {
-        guard let target = findMode(id, pointsWide: pointsWide, pointsHigh: pointsHigh,
-                                    pixelsWide: pixelsWide, pixelsHigh: pixelsHigh) else { return false }
-        return configure(scope: .permanently) { CGConfigureDisplayWithDisplayMode($0, id, target, nil) }
-    }
+    // NOTE (2026-07-27, operator decision): StayUp is READ-ONLY about the
+    // built-in's mode. There was a `restoreLogicalModePermanently` here (a
+    // `.permanently` config transaction undoing per-topology store yanks);
+    // it was removed in favor of detect-and-notify — a buggy auto-undo can
+    // cement the wrong mode into macOS's store, a notification can't. If it
+    // is ever revived, remember: a plain CGDisplaySetDisplayMode can NOT do
+    // that job (it neither rewrites the store nor survives process exit —
+    // both on-tape, 2026-07-27).
 
     // MARK: - Plumbing
 
@@ -92,15 +84,14 @@ enum DisplayMirror {
         }
     }
 
-    private static func configure(scope: CGConfigureOption = .forSession,
-                                  _ body: (CGDisplayConfigRef) -> CGError) -> Bool {
+    private static func configure(_ body: (CGDisplayConfigRef) -> CGError) -> Bool {
         var config: CGDisplayConfigRef?
         guard CGBeginDisplayConfiguration(&config) == .success, let config else { return false }
         guard body(config) == .success else {
             CGCancelDisplayConfiguration(config)
             return false
         }
-        return CGCompleteDisplayConfiguration(config, scope) == .success
+        return CGCompleteDisplayConfiguration(config, .forSession) == .success
     }
 
     private static func onlineDisplays() -> [CGDirectDisplayID] {

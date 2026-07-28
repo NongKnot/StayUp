@@ -46,7 +46,7 @@ final class SleepStack {
     /// stays an internal detail — callers pass the four facts directly.
     /// Returns true when the table upgrade cycled a live phantom (a real
     /// teardown+arrival topology transition the before/after snapshot diff
-    /// cannot see — the caller's undo guard needs to know).
+    /// cannot see — the caller's yank watch needs to know).
     @discardableResult
     func apply(engaged: Bool, keepScreenOn: Bool, hasExternalDisplay: Bool,
                suppressVirtualDisplay: Bool, virtualDisplayModes modes: [VirtualDisplay.Mode]?) -> Bool {

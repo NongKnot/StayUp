@@ -38,21 +38,21 @@ class MenuController: NSObject, NSMenuDelegate {
     /// path — HITL 2026-07-27). The clamshell-off pin reads this. Cleared on
     /// disengage.
     private var lastBuiltinMode: VirtualDisplay.Mode?
-    /// One-shot undo guard armed at OUR topology transitions — phantom
-    /// spawn, phantom teardown, lid-open re-pairing. macOS keeps one
+    /// One-shot READ-ONLY yank watch armed at OUR topology transitions —
+    /// phantom spawn, phantom teardown, lid-open re-pairing. macOS keeps one
     /// remembered display config per topology ({built-in} solo vs
     /// {built-in + phantom} pair) and re-applies it wholesale at every such
-    /// transition, including the built-in's stored mode and the mirrored
-    /// flag (root-caused 2026-07-27, WindowServer log — this is the entire
-    /// "resolution yank" family; StayUp's own mirror call never moved the
-    /// built-in). While armed, a built-in mode differing from the reference
-    /// is that stale memory, not a user pick — undo it `.permanently`, which
-    /// rewrites the store for the live topology so both memories converge on
-    /// the user's mode and this guard becomes a permanent no-op. Never armed
-    /// outside our own transitions: the user's picker stays the built-in's
-    /// only other writer.
-    private var topologyUndoGuard: (reference: VirtualDisplay.Mode, event: String, until: Date)?
-    private static let TOPOLOGY_UNDO_WINDOW_SECS: TimeInterval = 8
+    /// transition, including the built-in's stored mode (root-caused
+    /// 2026-07-27, WindowServer log — this is the entire "resolution yank"
+    /// family; StayUp's own mirror call never moved the built-in). StayUp
+    /// never writes the built-in's config (operator decision 2026-07-27:
+    /// a buggy auto-undo can cement the wrong mode into macOS's store
+    /// permanently; a notification can't). While armed, a built-in mode
+    /// differing from the reference is that stale memory being re-applied —
+    /// surface it in one notification and stand down. The user's picker is
+    /// the built-in's ONLY writer.
+    private var topologyYankWatch: (reference: VirtualDisplay.Mode, event: String, until: Date)?
+    private static let TOPOLOGY_YANK_WINDOW_SECS: TimeInterval = 8
     /// Built-in online-list state of the previous reapply pass — detects the
     /// lid-open (offline→online) re-pairing transition for the guard above.
     private var builtinWasOnline: Bool?
@@ -377,31 +377,26 @@ class MenuController: NSObject, NSMenuDelegate {
         zzzTimer = nil
         builtinBacklight.apply(dim: false)   // undim the built-in before teardown
         let hadPhantom = stack.snapshot().virtualDisplay
-        // Reference priority: an armed in-window guard first (a store yank may
-        // still be pending undo — the LIVE mode is then the yank, not the
-        // user's pick), then the live mode, then the pre-close mode (clamshell-
-        // off: the built-in is offline, builtinNativeMode is nil, and without
-        // the fallback the stale solo memory would greet the next lid-open
-        // with no StayUp left to undo it).
-        let armedReference = topologyUndoGuard.flatMap { Date() < $0.until ? $0.reference : nil }
+        // Reference priority: an armed in-window watch first (a store yank
+        // may still be unreported — the LIVE mode is then the yank, not the
+        // user's pick), then the live mode, then the pre-close mode
+        // (clamshell-off: the built-in is offline, builtinNativeMode is nil).
+        let armedReference = topologyYankWatch.flatMap { Date() < $0.until ? $0.reference : nil }
         let quitReference = armedReference ?? builtinNativeMode ?? lastBuiltinMode
         stack.shutdown()
-        // Quit tears the phantom down with no surviving reapply pass to run
-        // the topology undo guard — macOS re-applies the remembered solo
-        // config within milliseconds of the display leaving. One bounded
-        // synchronous check before exit covers it (the .permanently write
-        // lands in WindowServer, so it outlives this process). Runs for a
-        // pending in-window undo too, even when the phantom already went down
-        // (disengage moments before quit — the scheduled checks die with us).
+        // Quit tears the phantom down with no surviving check pass — macOS
+        // re-applies the remembered solo config within milliseconds of the
+        // display leaving. One bounded synchronous READ before exit surfaces
+        // it (read-only: notify, never write). Runs for a pending in-window
+        // watch too, even when the phantom already went down (disengage
+        // moments before quit — the scheduled checks die with us).
         if hadPhantom || armedReference != nil, let want = quitReference, !hasRealExternalDisplay {
             Thread.sleep(forTimeInterval: 0.8)
-            if let builtin = builtinDisplayID, let cur = builtinNativeMode, cur != want {
-                let ok = DisplayMirror.restoreLogicalModePermanently(
-                    builtin,
-                    pointsWide: want.pointsWide, pointsHigh: want.pointsHigh,
-                    pixelsWide: want.pixelsWide, pixelsHigh: want.pixelsHigh)
+            if let cur = builtinNativeMode, cur != want {
                 FileHandle.standardError.write(Data(
-                    "[StayUp] topology-memory undo at quit: built-in \(cur.pointsWide)x\(cur.pointsHigh) -> \(want.pointsWide)x\(want.pointsHigh): \(ok ? "ok" : "FAILED")\n".utf8))
+                    "[StayUp] topology-memory yank at quit: built-in \(want.pointsWide)x\(want.pointsHigh) -> \(cur.pointsWide)x\(cur.pointsHigh) (read-only: notified, not undone)\n".utf8))
+                notifyResolutionYank(from: want, to: cur)
+                Thread.sleep(forTimeInterval: 0.3)   // let the notification XPC land before exit
             }
         }
         walkDetector.stop()
@@ -883,7 +878,7 @@ class MenuController: NSObject, NSMenuDelegate {
         // Capture the built-in's mode BEFORE the stack can flip the phantom:
         // if this apply spawns or drops it, macOS re-applies the remembered
         // config for the new topology right behind the flip, and this
-        // pre-transition mode is the reference the undo guard restores.
+        // pre-transition mode is the reference the yank watch compares against.
         let phantomBefore = stack.snapshot().virtualDisplay
         let modeBefore = builtinNativeMode
         let phantomCycled = stack.apply(engaged: engaged,
@@ -892,7 +887,7 @@ class MenuController: NSObject, NSMenuDelegate {
                     suppressVirtualDisplay: suppressPhantom,
                     virtualDisplayModes: builtinModeTable)
         if stack.snapshot().virtualDisplay != phantomBefore {
-            armTopologyUndoGuard(reference: modeBefore,
+            armTopologyYankWatch(reference: modeBefore,
                                  event: phantomBefore ? "phantom teardown" : "phantom arrival")
         } else if phantomCycled {
             // The table-upgrade respawn is teardown+arrival with an unchanged
@@ -901,74 +896,83 @@ class MenuController: NSObject, NSMenuDelegate {
             // be the store's pair imposition — so arm from lastBuiltinMode
             // (never adopts a disputed mode), not modeBefore. nil (built-in
             // never seen this engage) arms nothing: with no trusted reference,
-            // an undo could cement the wrong mode permanently.
-            armTopologyUndoGuard(reference: lastBuiltinMode,
+            // a notification would just be a guess.
+            armTopologyYankWatch(reference: lastBuiltinMode,
                                  event: "phantom respawn (mode-table upgrade)")
         }
     }
 
-    /// Arm the undo guard for one of OUR topology transitions and schedule
+    /// Arm the yank watch for one of OUR topology transitions and schedule
     /// follow-up checks. The scheduled checks exist because the settle-
     /// deferred reapply path only runs while engaged — the teardown
-    /// transition (disengage, veto) needs the guard to fire while idle too.
-    private func armTopologyUndoGuard(reference: VirtualDisplay.Mode?, event: String) {
+    /// transition (disengage, veto) needs the check to fire while idle too.
+    private func armTopologyYankWatch(reference: VirtualDisplay.Mode?, event: String) {
         // A real external display in the mix → stand down: its arrival/removal
         // legitimately re-applies the user's own remembered config for THAT
-        // display set, which must not be undone.
-        guard !hasRealExternalDisplay else { topologyUndoGuard = nil; return }
+        // display set — not a yank, nothing to report.
+        guard !hasRealExternalDisplay else { topologyYankWatch = nil; return }
         // No reference (built-in offline: closed lid, or a desktop) → nothing
-        // to arm — but a pending in-window undo from an earlier transition
+        // to arm — but a pending in-window watch from an earlier transition
         // stays armed (a teardown flip under a closed lid must not wipe the
-        // arrival flip's pending undo). Expired guards are dropped here so
+        // arrival flip's pending check). Expired watches are dropped here so
         // they can't linger and block lid-open arming / mode adoption.
         guard var reference else {
-            if let g = topologyUndoGuard, Date() >= g.until { topologyUndoGuard = nil }
+            if let g = topologyYankWatch, Date() >= g.until { topologyYankWatch = nil }
             return
         }
-        // Unresolved dispute: an in-window guard whose reference differs means
+        // Unresolved dispute: an in-window watch whose reference differs means
         // the CURRENT mode may itself be the store's imposition (veto teardown,
         // rapid engage→disengage) — keep the older capture (the user's mode)
         // instead of adopting the disputed one as the new reference.
-        if let g = topologyUndoGuard, Date() < g.until, g.reference != reference {
+        if let g = topologyYankWatch, Date() < g.until, g.reference != reference {
             reference = g.reference
         }
-        topologyUndoGuard = (reference, event,
-                             Date().addingTimeInterval(Self.TOPOLOGY_UNDO_WINDOW_SECS))
+        topologyYankWatch = (reference, event,
+                             Date().addingTimeInterval(Self.TOPOLOGY_YANK_WINDOW_SECS))
         for delay: TimeInterval in [2.5, 6.5] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.runTopologyUndoGuard()
+                self?.runTopologyYankCheck()
             }
         }
     }
 
-    /// Compare the built-in against the armed reference and undo a stale
-    /// store-imposed mode. Idempotent; safe to call from any pass. Keeps the
-    /// guard armed until its deadline — the store's application can trail the
-    /// topology event, and a successful undo makes later checks no-ops.
-    private func runTopologyUndoGuard() {
-        guard let g = topologyUndoGuard else { return }
-        if Date() >= g.until || hasRealExternalDisplay { topologyUndoGuard = nil; return }
+    /// Compare the built-in against the armed reference; a deviation inside
+    /// the window is macOS's per-topology memory being re-applied. READ-ONLY:
+    /// tell the user and stand down — StayUp never writes the mode back.
+    private func runTopologyYankCheck() {
+        guard let g = topologyYankWatch else { return }
+        if Date() >= g.until || hasRealExternalDisplay { topologyYankWatch = nil; return }
         // Built-in offline (mid-clamshell churn): keep armed; a later pass
         // re-checks once the panel is back.
-        guard let builtin = builtinDisplayID, let cur = builtinNativeMode else { return }
+        guard let cur = builtinNativeMode else { return }
         guard cur != g.reference else { return }
-        // Picker sovereignty inside the window: a deviation while System
-        // Settings is frontmost is far more likely the user's own pick than
-        // the store's imposition (impositions land at transitions, with no
-        // picker in front). Stand down instead of fighting it — a real yank
-        // left un-undone self-corrects on the user's next pick.
+        // A deviation while System Settings is frontmost is far more likely
+        // the user's own pick than the store's imposition (impositions land
+        // at transitions, with no picker in front) — no yank, nothing to say.
         if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.systempreferences" {
-            topologyUndoGuard = nil
-            FileHandle.standardError.write(Data(
-                "[StayUp] topology-memory undo stood down after \(g.event): System Settings frontmost, user pick wins\n".utf8))
+            topologyYankWatch = nil
             return
         }
-        let ok = DisplayMirror.restoreLogicalModePermanently(
-            builtin,
-            pointsWide: g.reference.pointsWide, pointsHigh: g.reference.pointsHigh,
-            pixelsWide: g.reference.pixelsWide, pixelsHigh: g.reference.pixelsHigh)
+        topologyYankWatch = nil   // one notice per transition, not one per pass
         FileHandle.standardError.write(Data(
-            "[StayUp] topology-memory undo after \(g.event): built-in \(cur.pointsWide)x\(cur.pointsHigh) -> \(g.reference.pointsWide)x\(g.reference.pointsHigh): \(ok ? "ok" : "FAILED")\n".utf8))
+            "[StayUp] topology-memory yank after \(g.event): built-in \(g.reference.pointsWide)x\(g.reference.pointsHigh) -> \(cur.pointsWide)x\(cur.pointsHigh) (read-only: notified, not undone)\n".utf8))
+        notifyResolutionYank(from: g.reference, to: cur)
+    }
+
+    /// macOS's per-topology display memory changed the built-in's resolution
+    /// around one of our transitions. StayUp is read-only about the built-in
+    /// (operator decision 2026-07-27) — tell the user instead of writing.
+    private func notifyResolutionYank(from: VirtualDisplay.Mode, to: VirtualDisplay.Mode) {
+        if Self.isTestMode { return }
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Your resolution was changed"
+            content.body = "macOS switched the built-in display to \(to.pointsWide)×\(to.pointsHigh) (you had \(from.pointsWide)×\(from.pointsHigh)). Pick it again in System Settings → Displays if you didn't want that."
+            center.add(UNNotificationRequest(
+                identifier: "stayup.resolutionYank", content: content, trigger: nil))
+        }
     }
 
     /// The built-in panel's display ID if it is currently in the ACTIVE display
@@ -1173,19 +1177,19 @@ class MenuController: NSObject, NSMenuDelegate {
         // Lid-open returns the built-in into the {built-in, phantom} pair —
         // macOS re-applies that topology's remembered config on the way in
         // (the same per-topology store that yanks at spawn/teardown). Arm the
-        // undo guard with the pre-close mode so a stale pair memory gets
-        // undone; a guard already armed by this pass's applyStack wins.
+        // yank watch with the pre-close mode so a stale pair memory gets
+        // surfaced; a watch already armed by this pass's applyStack wins.
         if builtinOnline, builtinWasOnline == false, stack.snapshot().virtualDisplay,
-           topologyUndoGuard == nil {
-            armTopologyUndoGuard(reference: lastBuiltinMode, event: "lid-open re-pairing")
+           topologyYankWatch == nil {
+            armTopologyYankWatch(reference: lastBuiltinMode, event: "lid-open re-pairing")
         }
         builtinWasOnline = builtinOnline
-        runTopologyUndoGuard()
+        runTopologyYankCheck()
         // Keep the pre-close desktop spec fresh while the built-in is online —
-        // but never adopt a mode the armed guard still disputes, or the undo
+        // but never adopt a mode the armed watch still disputes, or the
         // reference would drift onto the store's imposed mode.
         if let m = builtinNativeMode,
-           topologyUndoGuard == nil || m == topologyUndoGuard!.reference {
+           topologyYankWatch == nil || m == topologyYankWatch!.reference {
             lastBuiltinMode = m
         }
         // Standalone phantom defaults to its raw 1x framebuffer mode, doubling
